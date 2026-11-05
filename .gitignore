@@ -1,0 +1,40 @@
+# Rust
+/target
+**/target
+
+# Node
+node_modules
+dist
+
+# Generado por Tauri
+/src-tauri/gen
+
+# Python. Sin barra final a proposito: con `.venv/` el patron solo casa con un
+# directorio que ya exista, y un venv no debe colarse.
+.venv
+venv
+__pycache__/
+*.pyc
+
+# Modelos descargados, por si se apunta -ModelsDir a una carpeta del repo.
+/models/
+/hf-cache/
+
+# Configuracion local. Lleva rutas absolutas de la maquina, y a menudo nombres
+# de carpetas y de ficheros que no tienen por que salir de aqui. La plantilla
+# esta en transcriber-config.example.toml.
+transcriber-config.toml
+
+# Transcripciones exportadas: son contenido de quien use la app, no del repo.
+# La excepcion cubre requirements.txt: sin ella, la receta del venv quedaria
+# invisible para git.
+*.srt
+*.txt
+!requirements*.txt
+
+*.log
+.DS_Store
+
+# Logs de la app (rotan por fecha) y copias de seguridad de la config.
+/logs/
+transcriber-config.toml.*

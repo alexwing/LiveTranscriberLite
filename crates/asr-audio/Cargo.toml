@@ -1,0 +1,15 @@
+[package]
+name = "asr-audio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Captura WASAPI (loopback y microfono) entregada como 16 kHz mono f32 para ASR"
+
+[dependencies]
+serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+wasapi = "0.23.0"

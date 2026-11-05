@@ -1,0 +1,62 @@
+# LiveTranscriber Lite: configuracion de ejemplo.
+#
+# Se copia a %APPDATA%\LiveTranscriberLite\transcriber-config.toml (o a la ruta
+# de la variable de entorno LIVETRANSCRIBERLITE_CONFIG). Todos los campos son
+# opcionales: lo que falte toma el valor de aqui. Las claves que no existen
+# (de versiones anteriores) se ignoran.
+
+# --- Sidecar de Python -------------------------------------------------------
+
+# Vacio = busca .venv\Scripts\python.exe y sidecar\asr_server.py junto a la
+# aplicacion. `scripts\install.ps1` los rellena con rutas absolutas.
+python = ""
+script = ""
+
+# Donde estan los modelos descargados (HF_HOME). Vacio = la cache por defecto de
+# Hugging Face, en %USERPROFILE%\.cache\huggingface.
+hf_home = ""
+
+# Carpeta de los modelos de Parakeet (ficheros reales, se bajan solos si faltan).
+# Vacio = LITE_MODELS_DIR, o <HF_HOME>\livetranscriberlite (por defecto
+# %USERPROFILE%\.cache\huggingface\livetranscriberlite).
+models_dir = ""
+
+# --- Modelo ------------------------------------------------------------------
+
+# "cpu" (int8, ~0,04 de tiempo real con 4 hilos) o "gpu" (DirectML, fp32, ~0,007;
+# si no esta el proveedor cae a CPU y lo avisa).
+device = "cpu"
+cpu_threads = 4
+# "auto" = int8 en CPU y fp32 en GPU. Tambien "int8" o "fp32".
+quantization = "auto"
+
+# Milisegundos de silencio tras habla que cierran una frase.
+silence_ms = 600
+# Tope de duracion de un segmento, en segundos.
+max_segment_secs = 15.0
+
+# --- Captura -----------------------------------------------------------------
+
+# Lo que suena en el sistema (loopback) y el microfono. Se transcriben a la vez.
+capture_system = true
+capture_mic = true
+
+# Vacio = dispositivo predeterminado. Los ids salen de `asr-cli devices`.
+system_device_id = ""
+mic_device_id = ""
+
+# Compensa el volumen de Windows: el loopback captura despues del control de
+# volumen y un volumen bajo dejaria la transcripcion en nada.
+normalize_gain = true
+
+# --- Salida ------------------------------------------------------------------
+
+# Vacio (o relativa) = %USERPROFILE%\Documents\LiveTranscriberLite
+output_dir = ""
+# Los ficheros se llaman AAAA_MM_DD_<output_name>.txt / .srt
+output_name = "reunion"
+
+# --- Atajo global ------------------------------------------------------------
+
+# Arrancar / parar la transcripcion desde cualquier sitio. Vacio = sin atajo.
+hotkey_toggle = "CmdOrControl+Shift+T"

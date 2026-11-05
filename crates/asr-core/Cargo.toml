@@ -1,0 +1,17 @@
+[package]
+name = "asr-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Motor de ASR desacoplado, orquestacion de sesion e historial de transcripcion"
+
+[dependencies]
+asr-audio = { path = "../asr-audio" }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+toml = { workspace = true }
+tracing = { workspace = true }
+chrono = { version = "0.4.45", default-features = false, features = ["clock"] }

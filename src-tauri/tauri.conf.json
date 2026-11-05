@@ -1,0 +1,54 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "LiveTranscriber Lite",
+  "version": "0.2.0",
+  "identifier": "dev.livetranscriberlite.app",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://127.0.0.1:5175",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "LiveTranscriber Lite",
+        "width": 420,
+        "height": 330,
+        "minWidth": 420,
+        "minHeight": 330,
+        "resizable": false,
+        "maximizable": false,
+        "center": true,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "resources": {
+      "../sidecar/asr_server.py": "sidecar/asr_server.py",
+      "../sidecar/requirements.txt": "sidecar/requirements.txt",
+      "../scripts/install.ps1": "scripts/install.ps1",
+      "../scripts/verify.ps1": "scripts/verify.ps1",
+      "../scripts/fetch_models.py": "scripts/fetch_models.py",
+      "../install.cmd": "install.cmd",
+      "../target/release/asr-cli.exe": "asr-cli.exe"
+    },
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.png",
+      "icons/icon.ico"
+    ]
+  },
+  "plugins": {}
+}

@@ -1,0 +1,13 @@
+# Dependencias del sidecar de reconocimiento (NVIDIA Parakeet TDT 0.6B v3 con onnx-asr).
+#
+# CPU por defecto. Para GPU en Windows (DirectML, cualquier tarjeta DX12) hay que
+# cambiar onnxruntime por onnxruntime-directml. No se instalan los dos a la vez:
+#
+#   pip uninstall -y onnxruntime
+#   pip install onnxruntime-directml
+#
+# Sin el paquete de DirectML, --device gpu cae a CPU y lo dice en "ready".
+
+onnx-asr[hub]
+onnxruntime
+numpy
