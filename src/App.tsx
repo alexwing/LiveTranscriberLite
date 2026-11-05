@@ -58,7 +58,7 @@ export default function App() {
   /// Cambios aplicados en pantalla y aun sin enviar a Rust.
   const pending = useRef<Partial<AppConfig>>({});
 
-  const fail = useCallback((e: unknown) => setError(e instanceof Error ? e.message : String(e)), []);
+  const fail = useCallback((e: unknown) => setError(errorText(e, tRef.current)), []);
 
   useEffect(() => {
     localStorage.setItem("uiLang", lang);
@@ -102,6 +102,15 @@ export default function App() {
           case "device_fallback":
             setFallbacks((f) => ({ ...f, [ev.source]: tRef.current.deviceFallback(ev.wanted, ev.using) }));
             break;
+          case "device_missing":
+            setFallbacks((f) => ({
+              ...f,
+              [ev.source]: ev.source === "mic" ? tRef.current.missingMic : tRef.current.missingSystem,
+            }));
+            break;
+          case "capture_failed":
+            setError(`${ev.source === "mic" ? tRef.current.lostMic : tRef.current.lostSystem}: ${ev.message}`);
+            break;
           case "error":
             setError(ev.source ? `[${ev.source}] ${ev.message}` : ev.message);
             break;
@@ -121,7 +130,8 @@ export default function App() {
           setPartials({});
         }
       }),
-      on<string>("error", setError),
+      // El atajo y la bandeja mandan el error del comando entero ({ message, code }).
+      on<unknown>("error", (e) => setError(errorText(e, tRef.current))),
     ];
     return () => offs.forEach((off) => off());
   }, []);
@@ -331,4 +341,23 @@ export default function App() {
       {footer}
     </div>
   );
+}
+
+/** Texto de un error para el pie: los que traen `code` se cuentan con las
+ *  palabras (y el idioma) de la interfaz; el resto, tal cual llegan. */
+function errorText(e: unknown, t: Strings): string {
+  const code = typeof e === "object" && e !== null ? (e as { code?: unknown }).code : undefined;
+  switch (code) {
+    case "no_audio_devices":
+      return t.noAudioDevices;
+    case "no_mic":
+      return t.noMic;
+    case "no_output":
+      return t.noOutput;
+  }
+  if (e instanceof Error) return e.message;
+  if (typeof e === "object" && e !== null && typeof (e as { message?: unknown }).message === "string") {
+    return (e as { message: string }).message;
+  }
+  return String(e);
 }

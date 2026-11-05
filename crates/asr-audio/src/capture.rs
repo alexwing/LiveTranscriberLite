@@ -49,6 +49,12 @@ pub struct CaptureOpened {
 /// desde el hilo de captura, una sola vez, justo despues de arrancar el stream.
 pub type OnOpen = Box<dyn FnOnce(CaptureOpened) + Send + 'static>;
 
+/// Aviso de que la captura se ha caido por un error (no al pararla): sin
+/// dispositivo, desenchufado a mitad, WASAPI que falla. Recibe el error en
+/// texto. Sin esto el fallo solo quedaba en el log y la ventana seguia
+/// "escuchando" una fuente muerta.
+pub type OnError = Box<dyn FnOnce(String) + Send + 'static>;
+
 /// Arranca la captura en su propio hilo. El hilo termina cuando `running` pasa
 /// a false, cuando el receptor del canal desaparece, o ante un error de WASAPI
 /// (en cuyo caso deja `running` en false para que quien mande se entere).
@@ -60,12 +66,16 @@ pub fn spawn_capture(
     running: Arc<AtomicBool>,
     tx: SyncSender<Vec<f32>>,
     on_open: Option<OnOpen>,
+    on_error: Option<OnError>,
 ) -> Result<JoinHandle<()>> {
     std::thread::Builder::new()
         .name("asr-capture".into())
         .spawn(move || {
             if let Err(e) = capture_loop(&target, &running, &tx, on_open) {
                 tracing::error!("captura detenida: {e}");
+                if let Some(on_error) = on_error {
+                    on_error(e.to_string());
+                }
             }
             running.store(false, Ordering::Relaxed);
             tracing::info!("hilo de captura terminado");
@@ -79,6 +89,7 @@ pub fn spawn_capture(
     _running: Arc<AtomicBool>,
     _tx: SyncSender<Vec<f32>>,
     _on_open: Option<OnOpen>,
+    _on_error: Option<OnError>,
 ) -> Result<JoinHandle<()>> {
     Err(crate::AudioError::UnsupportedPlatform)
 }

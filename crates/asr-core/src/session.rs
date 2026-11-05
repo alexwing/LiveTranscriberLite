@@ -92,6 +92,13 @@ pub enum SessionEvent {
         wanted: String,
         using: String,
     },
+    /// La fuente estaba activada pero no hay ningun dispositivo con que
+    /// capturarla (ni microfono, o ni salida de audio): se arranca solo con
+    /// la otra. Llega al principio de la sesion, antes de `ready`.
+    DeviceMissing { source: Source },
+    /// La captura de la fuente se ha caido a mitad (dispositivo desenchufado,
+    /// fallo de WASAPI). Esa fuente ya no aporta audio aunque la sesion siga.
+    CaptureFailed { source: Source, message: String },
     /// La fuente se ha detenido del todo: llega tras su ultimo `Final`.
     Stopped { source: Source },
 }
@@ -134,8 +141,18 @@ impl Session {
                 });
             }
         });
-        let capture = spawn_capture(cfg.target.clone(), running.clone(), audio_tx, Some(on_open))
-            .map_err(|e| EngineError::Spawn(e.to_string()))?;
+        let error_out = out.clone();
+        let on_error: asr_audio::OnError = Box::new(move |message| {
+            let _ = error_out.send(SessionEvent::CaptureFailed { source, message });
+        });
+        let capture = spawn_capture(
+            cfg.target.clone(),
+            running.clone(),
+            audio_tx,
+            Some(on_open),
+            Some(on_error),
+        )
+        .map_err(|e| EngineError::Spawn(e.to_string()))?;
 
         // Traduce los eventos del motor a eventos de sesion, poniendoles la
         // fuente. El motor no sabe de donde salio su audio.
@@ -351,6 +368,23 @@ mod tests {
         assert_eq!(
             json(&fb),
             r#"{"kind":"device_fallback","source":"mic","wanted":"a","using":"b"}"#
+        );
+    }
+
+    #[test]
+    fn la_falta_de_dispositivo_y_la_caida_de_captura_llevan_su_fuente() {
+        assert_eq!(
+            json(&SessionEvent::DeviceMissing {
+                source: Source::System
+            }),
+            r#"{"kind":"device_missing","source":"system"}"#
+        );
+        assert_eq!(
+            json(&SessionEvent::CaptureFailed {
+                source: Source::Mic,
+                message: "x".into()
+            }),
+            r#"{"kind":"capture_failed","source":"mic","message":"x"}"#
         );
     }
 }

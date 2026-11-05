@@ -47,7 +47,21 @@ export type SessionEvent =
   | { kind: "error"; source?: Source; message: string }
   /** El dispositivo configurado no existe; se captura con `using` en su lugar. */
   | { kind: "device_fallback"; source: Source; wanted: string; using: string }
+  /** La fuente esta activada pero no hay dispositivo: se arranca sin ella. */
+  | { kind: "device_missing"; source: Source }
+  /** La captura de la fuente se ha caido a mitad de sesion. */
+  | { kind: "capture_failed"; source: Source; message: string }
   | { kind: "stopped"; source: Source };
+
+/** Error de un comando. `code` lo llevan los fallos que la interfaz explica
+ *  con sus propias palabras (ver `errorText` en App.tsx). */
+export class CmdError extends Error {
+  code?: string;
+  constructor(message: string, code?: string) {
+    super(message);
+    this.code = code;
+  }
+}
 
 // Los errores de los comandos llegan como { message } o como texto. Fuera de
 // Tauri (navegador suelto) `invoke` revienta por falta de __TAURI_INTERNALS__:
@@ -56,7 +70,7 @@ async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> 
   try {
     return await invoke<T>(cmd, args);
   } catch (e: any) {
-    throw new Error(e?.message ?? String(e));
+    throw new CmdError(e?.message ?? String(e), e?.code);
   }
 }
 

@@ -180,7 +180,8 @@ fn level(which: Which, device_id: Option<String>, seconds: u64, pid: Option<u32>
         ),
         None => println!("device: {} [{}]", opened.device_name, opened.device_id),
     });
-    let handle = spawn_capture(target, running.clone(), tx, Some(announce))
+    let report: asr_audio::OnError = Box::new(|e| eprintln!("capture stopped: {e}"));
+    let handle = spawn_capture(target, running.clone(), tx, Some(announce), Some(report))
         .context("starting the capture")?;
 
     let deadline = Instant::now() + Duration::from_secs(seconds);
@@ -327,6 +328,14 @@ fn show(event: SessionEvent, transcript: &mut Transcript, last_level: &mut Insta
         SessionEvent::DeviceFallback { wanted, using, .. } => {
             eprintln!("\n[warning] device {wanted} is not connected, using {using} instead")
         }
+        SessionEvent::DeviceMissing { source } => {
+            eprintln!("
+[warning] [{}] no audio device for this source, skipping it", label(source))
+        }
+        SessionEvent::CaptureFailed { source, message } => {
+            eprintln!("
+[error] [{}] capture stopped: {message}", label(source))
+        }
         SessionEvent::Stopped { source } => println!("[{}] stopped", label(source)),
     }
 }
@@ -346,6 +355,17 @@ fn run(args: RunArgs) -> Result<()> {
     }
     if sidecar.script.as_os_str().is_empty() {
         sidecar.script = PathBuf::from("sidecar/asr_server.py");
+    }
+    // Una ruta relativa se busca primero junto al exe (la instalacion lleva el
+    // sidecar al lado) y solo despues en el directorio de trabajo, que puede
+    // ser otro proyecto con su propio sidecar/asr_server.py.
+    if sidecar.script.is_relative() {
+        let beside_exe = std::env::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(|dir| dir.join(&sidecar.script)));
+        if let Some(found) = beside_exe.filter(|p| p.exists()) {
+            sidecar.script = found;
+        }
     }
 
     anyhow::ensure!(

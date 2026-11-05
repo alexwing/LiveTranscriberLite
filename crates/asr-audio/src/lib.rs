@@ -21,7 +21,7 @@ mod capture;
 mod device;
 mod normalize;
 
-pub use capture::{spawn_capture, CaptureOpened, CaptureTarget, OnOpen};
+pub use capture::{spawn_capture, CaptureOpened, CaptureTarget, OnError, OnOpen};
 pub use device::{list_devices, AudioDevice, DeviceKind};
 pub use normalize::{rms, Normalizer};
 

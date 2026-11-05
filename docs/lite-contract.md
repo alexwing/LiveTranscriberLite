@@ -153,10 +153,20 @@ Las claves desconocidas de configs viejas se ignoran.
   - `{"kind":"level","source":"system","rms":0.01,"gain":4.0,"gain_at_ceiling":false}`
   - `{"kind":"error","source":"mic","message":"..."}` (`source` opcional)
   - `{"kind":"device_fallback","source":"mic","wanted":"...","using":"..."}`
+  - `{"kind":"device_missing","source":"mic"}`: la fuente estaba activada pero no hay ningún
+    dispositivo de ese tipo; se arranca solo con la otra.
+  - `{"kind":"capture_failed","source":"mic","message":"..."}`: la captura de esa fuente se ha
+    caído a mitad de sesión.
   - `{"kind":"stopped","source":"mic"}`
 - `transcript-entry`: `Entry` `{source, start_ms, end_ms, text}` cuando llega un `final`.
 - `running-changed`: `bool`.
-- `error`: `string` (errores globales: no arranca Python, falta el script, etc.).
+- `error`: `{ message, code? }` cuando el arranque por atajo o bandeja falla (errores globales: no
+  arranca Python, falta el script, etc.).
+
+Los comandos fallan con `{ message, code? }`. `code` lo llevan los errores que la interfaz traduce:
+`no_audio_devices` (no hay micrófono ni salida de audio), `no_mic` y `no_output` (falta el único
+dispositivo que se pedía). Con alguna fuente sin dispositivo y otra con él, el arranque sigue y
+llega un `device_missing` por la que falta.
 
 ### Export
 

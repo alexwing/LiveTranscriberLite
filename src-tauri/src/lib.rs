@@ -29,13 +29,27 @@ use asr_core::CONFIG_FILE;
 #[derive(Debug, serde::Serialize)]
 pub struct CmdError {
     pub message: String,
+    /// Para los fallos que la interfaz explica con sus propias palabras (y en
+    /// su idioma). Sin codigo, la interfaz ensena `message` tal cual.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: Option<&'static str>,
 }
 
 impl CmdError {
     fn new(message: impl Into<String>) -> Self {
         let message = message.into();
         tracing::error!("{message}");
-        Self { message }
+        Self {
+            message,
+            code: None,
+        }
+    }
+
+    fn coded(code: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            code: Some(code),
+            ..Self::new(message)
+        }
     }
 }
 
@@ -75,12 +89,13 @@ pub type CmdResult<T> = Result<T, CmdError>;
 
 /// Sitios donde buscar, en orden de preferencia. `app` es opcional porque el
 /// estado se construye antes de que exista el handle.
+///
+/// Primero lo que acompana al propio ejecutable y el directorio de trabajo el
+/// ultimo: si no, una app instalada lanzada desde una consola que esta en otro
+/// proyecto con un `sidecar/asr_server.py` (LiveTranscriber, sin ir mas lejos)
+/// arranca el sidecar equivocado.
 fn search_bases(app: Option<&AppHandle>) -> Vec<PathBuf> {
     let mut bases = Vec::new();
-
-    if let Ok(cwd) = std::env::current_dir() {
-        bases.push(cwd);
-    }
 
     // En desarrollo el binario vive en `target/debug`, asi que la raiz del
     // proyecto esta unos niveles por encima.
@@ -101,6 +116,10 @@ fn search_bases(app: Option<&AppHandle>) -> Vec<PathBuf> {
         if let Ok(resources) = app.path().resource_dir() {
             bases.push(resources);
         }
+    }
+
+    if let Ok(cwd) = std::env::current_dir() {
+        bases.push(cwd);
     }
 
     bases.dedup();
@@ -635,10 +654,32 @@ fn launch(app: &AppHandle, state: &AppState) -> CmdResult<()> {
         return Err("no source is enabled".to_string().into());
     }
 
+    // Sin dispositivo la captura falla en su hilo, ya arrancada la sesion, y
+    // la ventana se quedaba en "Esperando voz..." para siempre. Se mira antes:
+    // una fuente sin dispositivo se salta con aviso, y sin ninguna no se
+    // arranca (ni se carga el modelo para nada).
+    let needs = |source| wanted.iter().any(|(s, _)| *s == source);
+    let has_output = needs(Source::System)
+        .then(|| has_devices(DeviceKind::Output))
+        .flatten();
+    let has_input = needs(Source::Mic)
+        .then(|| has_devices(DeviceKind::Input))
+        .flatten();
+    let (wanted, missing) = split_by_devices(wanted, has_output, has_input);
+    if wanted.is_empty() {
+        return Err(no_device_error(&missing));
+    }
+    for source in &missing {
+        tracing::warn!("sin dispositivo para {source:?}: se arranca sin esa fuente");
+    }
+
     // UN proceso para las dos fuentes. `spawn` avisa con `loading` y devuelve
     // sin esperar al modelo: las sesiones empiezan ya, y el sidecar encola el
     // audio mientras carga.
     let (tx, rx) = std::sync::mpsc::channel::<SessionEvent>();
+    for source in missing {
+        let _ = tx.send(SessionEvent::DeviceMissing { source });
+    }
     let shared = SharedSidecar::spawn(&sidecar, tx.clone())?;
 
     let mut started = Vec::new();
@@ -668,6 +709,56 @@ fn launch(app: &AppHandle, state: &AppState) -> CmdResult<()> {
     spawn_event_pump(app.clone(), state.transcript.clone(), rx);
     let _ = app.emit("running-changed", true);
     Ok(())
+}
+
+/// Si hay algun dispositivo de ese tipo. `None` si no se pudo preguntar: en
+/// ese caso se intenta capturar igual y, si falla, ya lo dira la captura.
+fn has_devices(kind: DeviceKind) -> Option<bool> {
+    match asr_audio::list_devices(kind) {
+        Ok(list) => Some(!list.is_empty()),
+        Err(e) => {
+            tracing::warn!("no se pudieron enumerar los dispositivos ({kind:?}): {e}");
+            None
+        }
+    }
+}
+
+/// Separa las fuentes que tienen dispositivo de las que no. Una fuente con
+/// `None` (no se sabe) se queda: mejor intentarlo que callarla.
+fn split_by_devices(
+    wanted: Vec<(Source, CaptureTarget)>,
+    has_output: Option<bool>,
+    has_input: Option<bool>,
+) -> (Vec<(Source, CaptureTarget)>, Vec<Source>) {
+    let mut kept = Vec::new();
+    let mut missing = Vec::new();
+    for (source, target) in wanted {
+        let present = match source {
+            Source::System => has_output,
+            Source::Mic => has_input,
+        };
+        if present == Some(false) {
+            missing.push(source);
+        } else {
+            kept.push((source, target));
+        }
+    }
+    (kept, missing)
+}
+
+/// El error de "no se puede arrancar: no hay con que capturar". El codigo es
+/// lo que la interfaz traduce; el mensaje queda para el log y la bandeja.
+fn no_device_error(missing: &[Source]) -> CmdError {
+    let mic = missing.contains(&Source::Mic);
+    let system = missing.contains(&Source::System);
+    match (mic, system) {
+        (true, true) => CmdError::coded(
+            "no_audio_devices",
+            "no microphone and no audio output device were found",
+        ),
+        (true, false) => CmdError::coded("no_mic", "no microphone was found"),
+        _ => CmdError::coded("no_output", "no audio output device was found"),
+    }
 }
 
 /// Un id de dispositivo vacio es "el predeterminado".
@@ -776,7 +867,7 @@ fn build_tray(app: &AppHandle, lang: &str) -> tauri::Result<()> {
                 if state.running.load(Ordering::Relaxed) {
                     stop_internal(app, &state);
                 } else if let Err(e) = start_internal(app, &state) {
-                    let _ = app.emit("error", e.message);
+                    let _ = app.emit("error", &e);
                 }
             }
             "quit" => {
@@ -936,7 +1027,7 @@ pub fn run() {
                             // Tambien al log: si solo va a la interfaz, un
                             // fallo disparado por el atajo es invisible.
                             tracing::error!("no se pudo arrancar: {}", e.message);
-                            let _ = app.emit("error", e.message);
+                            let _ = app.emit("error", &e);
                         }
                     }
                 })
@@ -986,6 +1077,47 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn both() -> Vec<(Source, CaptureTarget)> {
+        vec![
+            (Source::System, CaptureTarget::Loopback { device_id: None }),
+            (Source::Mic, CaptureTarget::Microphone { device_id: None }),
+        ]
+    }
+
+    fn sources(list: &[(Source, CaptureTarget)]) -> Vec<Source> {
+        list.iter().map(|(s, _)| *s).collect()
+    }
+
+    #[test]
+    fn sin_ningun_dispositivo_no_queda_nada_que_arrancar() {
+        let (kept, missing) = split_by_devices(both(), Some(false), Some(false));
+        assert!(kept.is_empty());
+        assert_eq!(missing, vec![Source::System, Source::Mic]);
+        assert_eq!(no_device_error(&missing).code, Some("no_audio_devices"));
+    }
+
+    #[test]
+    fn sin_micro_se_arranca_solo_con_el_sistema() {
+        let (kept, missing) = split_by_devices(both(), Some(true), Some(false));
+        assert_eq!(sources(&kept), vec![Source::System]);
+        assert_eq!(missing, vec![Source::Mic]);
+    }
+
+    #[test]
+    fn si_no_se_pudo_enumerar_se_intenta_igual() {
+        let (kept, missing) = split_by_devices(both(), None, None);
+        assert_eq!(sources(&kept), vec![Source::System, Source::Mic]);
+        assert!(missing.is_empty());
+    }
+
+    #[test]
+    fn el_codigo_dice_que_falta() {
+        assert_eq!(no_device_error(&[Source::Mic]).code, Some("no_mic"));
+        assert_eq!(no_device_error(&[Source::System]).code, Some("no_output"));
+        let json = serde_json::to_string(&no_device_error(&[Source::Mic])).unwrap();
+        assert!(json.contains(r#""code":"no_mic""#), "{json}");
+    }
 
     /// Escribe un TOML minimo con la ruta de Python que se le diga.
     fn write_config(dir: &Path, python: &str) -> PathBuf {
