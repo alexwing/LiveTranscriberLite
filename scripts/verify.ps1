@@ -149,7 +149,7 @@ $device = Get-Value "device"
 if (-not $device) { $device = "cpu" }
 $hfHome = Get-Value "hf_home"
 $quant = Get-Value "quantization"
-if (-not $quant) { $quant = "int8" }
+if (-not $quant) { $quant = "auto" }  # el mismo defecto que la app: int8 en CPU, fp32 en GPU
 
 # --- interprete ------------------------------------------------------------
 # Sin `python` en la configuracion la aplicacion busca el .venv del proyecto.
