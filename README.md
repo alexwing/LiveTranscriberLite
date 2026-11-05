@@ -4,7 +4,7 @@ Transcribe en vivo una reunión en **español o inglés** a partir del micrófon
 sistema (lo que suena por los altavoces o los cascos), en local y sin conexión, y la guarda
 en `.txt` o `.srt`.
 
-Es la versión recortada de [LiveTranscriber](../LiveTranscriber): no traduce, no habla, no
+Es la versión recortada de [LiveTranscriber](https://github.com/alexwing/LiveTranscriber): no traduce, no habla, no
 tiene subtítulos ni perfiles. Pulsas el botón, transcribe, y al parar lo guardas.
 
 ## Modelo
@@ -23,7 +23,27 @@ la hace el VAD Silero.
 - Un solo proceso Python, con una sola copia del modelo, atiende al micrófono y al audio del
   sistema a la vez.
 
-## Instalación
+## Instalación desde la release (Windows)
+
+1. Descarga `LiveTranscriber.Lite_<versión>_x64-setup.exe` (o el `.msi`) de
+   [Releases](https://github.com/alexwing/LiveTranscriberLite/releases) e instálalo.
+2. La app necesita Python y el modelo, que no van dentro del instalador. La primera vez, ejecuta
+   el `install.cmd` de la carpeta de instalación, o abre la app y sigue el aviso, que te dice la
+   ruta exacta:
+
+   ```bash
+   "%LOCALAPPDATA%\LiveTranscriber Lite\install.cmd" -InstallPython
+   ```
+
+   Crea el entorno y descarga el modelo en `%LOCALAPPDATA%\LiveTranscriberLite`. Añade `-Gpu`
+   para usar la GPU, y quita `-InstallPython` si ya tienes Python 3.10–3.13.
+
+También hay un `.zip` portable con el ejecutable y los scripts: descomprímelo y ejecuta su
+`install.cmd`.
+
+Solo hay versión para Windows: la captura de audio usa WASAPI (micrófono y loopback del sistema).
+
+## Instalación desde el código
 
 Requisitos: Windows 10/11, Python 3.10–3.13, Rust (MSVC) y Node 18+.
 

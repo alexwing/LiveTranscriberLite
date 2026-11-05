@@ -1,0 +1,90 @@
+name: Release
+
+# Un tag v* (p. ej. v0.1.0) compila la app para Windows y deja una release en
+# BORRADOR con el instalador NSIS, el MSI y un zip portable. Se publica a mano
+# tras revisarla. La version sale de src-tauri/tauri.conf.json, que tiene que
+# coincidir con el tag.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Check tag matches app version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $version = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          if ("v$version" -ne "${{ github.ref_name }}") {
+            throw "El tag ${{ github.ref_name }} no coincide con la version de tauri.conf.json (v$version)"
+          }
+
+      # asr-cli.exe va dentro del bundle como recurso, asi que tiene que existir
+      # antes de `tauri build`.
+      - name: Build asr-cli
+        run: cargo build -p asr-cli --release --locked
+
+      - name: Build app and create draft release
+        id: tauri
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: v__VERSION__
+          releaseName: LiveTranscriber Lite v__VERSION__
+          releaseDraft: true
+          prerelease: false
+          releaseBody: |
+            Transcripcion en vivo de reuniones en espanol e ingles (microfono + audio del sistema), en local, con Parakeet TDT 0.6B v3.
+
+            **Instalacion**
+            1. Instala `LiveTranscriber.Lite_*_x64-setup.exe` (o el `.msi`).
+            2. La primera vez, ejecuta `install.cmd -InstallPython` desde la carpeta de instalacion (crea el entorno de Python y descarga el modelo, ~700 MB). Anade `-Gpu` para usar la GPU con DirectML.
+
+            El `.zip` portable trae lo mismo sin instalador: descomprimelo y ejecuta su `install.cmd`.
+
+            Solo Windows 10/11 x64.
+
+      - name: Portable zip
+        shell: pwsh
+        run: |
+          $version = "${{ steps.tauri.outputs.appVersion }}"
+          $name = "LiveTranscriberLite_${version}_x64_portable"
+          $out = "portable/$name"
+          New-Item -ItemType Directory -Force "$out/sidecar", "$out/scripts/fixtures" | Out-Null
+          $exe = Get-ChildItem target/release -Filter *.exe | Where-Object { $_.Name -ne "asr-cli.exe" -and $_.Name -notlike "build-script*" } | Select-Object -First 1
+          if (-not $exe) { throw "no encuentro el ejecutable de la app en target/release" }
+          Copy-Item $exe.FullName "$out/LiveTranscriberLite.exe"
+          Copy-Item target/release/asr-cli.exe $out
+          Copy-Item sidecar/asr_server.py, sidecar/requirements.txt "$out/sidecar"
+          Copy-Item scripts/install.ps1, scripts/verify.ps1, scripts/fetch_models.py, scripts/smoke_test.py "$out/scripts"
+          Copy-Item scripts/fixtures/*.wav "$out/scripts/fixtures"
+          Copy-Item install.cmd, README.md, LICENSE, transcriber-config.example.toml $out
+          Compress-Archive -Path "$out/*" -DestinationPath "portable/$name.zip"
+          "ZIP=portable/$name.zip" >> $env:GITHUB_ENV
+
+      - name: Upload portable zip
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "v${{ steps.tauri.outputs.appVersion }}" "$env:ZIP" --clobber

@@ -8,3 +8,4 @@
 # Binarios: que git no los toque.
 *.png binary
 *.ico binary
+*.wav binary

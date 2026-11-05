@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Frontend (tsc + vite)
+        run: |
+          npm ci
+          npm run build
+
+      # tauri-build exige que existan todos los recursos del bundle, incluido
+      # asr-cli.exe de release. Para los tests basta con que el fichero exista;
+      # compilarlo en release solo para esto doblaria el tiempo.
+      - name: Placeholder for the bundled asr-cli.exe
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force target/release | Out-Null
+          if (-not (Test-Path target/release/asr-cli.exe)) { New-Item -ItemType File target/release/asr-cli.exe | Out-Null }
+
+      - name: Rust tests
+        run: cargo test --workspace --locked

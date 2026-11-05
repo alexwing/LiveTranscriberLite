@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "LiveTranscriber Lite",
-  "version": "0.2.0",
+  "version": "0.1.0",
   "identifier": "dev.livetranscriberlite.app",
   "build": {
     "frontendDist": "../dist",
@@ -39,6 +39,10 @@
       "../scripts/install.ps1": "scripts/install.ps1",
       "../scripts/verify.ps1": "scripts/verify.ps1",
       "../scripts/fetch_models.py": "scripts/fetch_models.py",
+      "../scripts/smoke_test.py": "scripts/smoke_test.py",
+      "../scripts/fixtures/es.wav": "scripts/fixtures/es.wav",
+      "../scripts/fixtures/en.wav": "scripts/fixtures/en.wav",
+      "../scripts/fixtures/es_short.wav": "scripts/fixtures/es_short.wav",
       "../install.cmd": "install.cmd",
       "../target/release/asr-cli.exe": "asr-cli.exe"
     },
