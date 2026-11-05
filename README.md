@@ -36,7 +36,7 @@ la hace el VAD Silero.
    ```
 
    Crea el entorno y descarga el modelo en `%LOCALAPPDATA%\LiveTranscriberLite`. Añade `-Gpu`
-   para usar la GPU, y quita `-InstallPython` si ya tienes Python 3.10–3.13.
+   para usar la GPU, y quita `-InstallPython` si ya tienes Python 3.10–3.13. Si falta el runtime de Microsoft Visual C++, `install.cmd` lo instala también; Windows pide permiso de administrador una sola vez.
 
 También hay un `.zip` portable con el ejecutable y los scripts: descomprímelo y ejecuta su
 `install.cmd`.

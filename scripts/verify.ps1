@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Checks that a LiveTranscriberLite installation works.
 
@@ -33,7 +33,7 @@ Ejecuta un programa externo sin que su stderr tumbe el script.
 
 Con $ErrorActionPreference = "Stop", PowerShell 5.1 convierte lo que un .exe
 escriba en stderr en un error terminante, y `2>$null` solo esconde el texto: no
-evita el error. Aqui casi todo son sondas cuyo fallo es esperable (¿esta
+evita el error. Aqui casi todo son sondas cuyo fallo es esperable (esta
 onnx_asr?), asi que se decide por el codigo de salida.
 #>
 function Invoke-Native {
@@ -74,7 +74,7 @@ Lee una cadena TOML de verdad, en vez de con una regex a ojo.
 La regex de antes cortaba en la primera comilla, y eso ya fallaba contra
 ficheros VALIDOS que escribe la propia aplicacion: `toml::to_string_pretty`
 elige literal ('...') para las rutas de Windows, y si la ruta lleva un
-apostrofo —un usuario llamado O'Brien, sin ir mas lejos— sube a literal triple
+apostrofo (un usuario llamado O'Brien, sin ir mas lejos) sube a literal triple
 ('''...'''). Contra eso la regex devolvia un espacio, y el verificador mandaba
 a arreglar a mano una ruta que estaba perfectamente bien.
 
@@ -123,6 +123,35 @@ function Read-TomlString {
 Write-Host ""
 Write-Host "  Verification" -ForegroundColor White
 Write-Host ""
+
+# --- runtime de Visual C++ -------------------------------------------------
+# Antes que nada: sin este runtime ni python.exe arranca. Es la misma deteccion
+# que install.ps1; va duplicada porque este script tambien viaja solo.
+function Get-VcRuntime {
+    $keys = @(
+        "HKLM:\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64",
+        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\VisualStudio\14.0\VC\Runtimes\x64"
+    )
+    $version = $null
+    $minorOk = $false
+    foreach ($key in $keys) {
+        $r = Get-ItemProperty -LiteralPath $key -ErrorAction SilentlyContinue
+        if (-not $r -or $r.Installed -ne 1 -or $r.Major -ne 14) { continue }
+        $v = "{0}.{1}.{2}.{3}" -f $r.Major, $r.Minor, $r.Bld, $r.Rbld
+        if ($r.Minor -ge 40) { $version = $v; $minorOk = $true; break }
+        if (-not $version) { $version = $v }
+    }
+    $dll = Test-Path -LiteralPath (Join-Path $env:WINDIR "System32\msvcp140.dll")
+    return [pscustomobject]@{ Ok = ($minorOk -and $dll); Version = $version }
+}
+Check "Visual C++ runtime"
+$vc = Get-VcRuntime
+if ($vc.Ok) {
+    Pass "$($vc.Version) (x64)"
+} else {
+    $found = if ($vc.Version) { $vc.Version } else { "nothing" }
+    Bad ("missing or older than 14.40 (found: {0})" -f $found) "run install.cmd again or install https://aka.ms/vs/17/release/vc_redist.x64.exe"
+}
 
 # --- configuracion ---------------------------------------------------------
 # Misma ubicacion canonica que install.ps1 y que la aplicacion. Con

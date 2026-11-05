@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Gets LiveTranscriberLite ready to run on a freshly built Windows.
 
@@ -163,7 +163,7 @@ function Invoke-NativeLive {
 # Antes el TOML se componia interpolando en cadenas literales:
 # "output_dir = '$outDir'". En TOML la comilla simple delimita una cadena
 # literal, asi que un apostrofo dentro la cierra: un usuario de Windows
-# llamado O'Brien —nombre perfectamente normal— generaba un fichero invalido.
+# llamado O'Brien (nombre perfectamente normal) generaba un fichero invalido.
 #
 # El escapado ingenuo (pasar a comillas dobles sin tocar nada mas) es PEOR,
 # porque falla en silencio: "C:\temp\nuevo\respaldo" parsea sin error y
@@ -206,7 +206,7 @@ function ConvertTo-TomlString {
 <#
 Editor TOML por lineas. NO es un parser, y no pretende serlo: el instalador
 solo escribe cuatro claves escalares, y por lineas se conservan intactos los
-comentarios y —lo que importa— las claves que son del usuario.
+comentarios y, lo que importa, las claves que son del usuario.
 
 La raiz acaba en la PRIMERA cabecera de tabla: sin eso, una clave de raiz
 insertada al final caeria dentro de la primera tabla.
@@ -310,7 +310,7 @@ if ($ModelsDir) {
 # La red. Sonda barata, 3 s en total, y solo avisa: un origen puede estar caido
 # y el resto valer. Un proxy corporativo o un cortafuegos se manifestarian si
 # no como un fallo de pip que manda a mirar donde no es.
-$origins = @("pypi.org", "files.pythonhosted.org", "huggingface.co")
+$origins = @("pypi.org", "files.pythonhosted.org", "huggingface.co", "aka.ms")
 $unreachable = @()
 foreach ($host_ in $origins) {
     $ok = $false
@@ -328,6 +328,90 @@ if ($unreachable.Count -eq $origins.Count) {
 } else {
     Write-Ok "the download origins answer"
 }
+
+# ---------------------------------------------------------------------------
+Write-Step "Visual C++ runtime"
+
+# onnxruntime (y el propio python.exe) necesitan el runtime de C++ de Visual
+# Studio 2015-2022, x64. Una instalacion limpia de Windows no lo trae, y el
+# fallo llega como "DLL load failed" o como un 0xC0000135 sin explicacion.
+# Se exige la 14.40 o posterior: onnxruntime 1.24 se compila con VS 17.10+, y
+# un msvcp140 mas viejo se cae al usar std::mutex.
+function Get-VcRuntime {
+    $keys = @(
+        "HKLM:\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64",
+        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\VisualStudio\14.0\VC\Runtimes\x64"
+    )
+    $version = $null
+    $minorOk = $false
+    foreach ($key in $keys) {
+        $r = Get-ItemProperty -LiteralPath $key -ErrorAction SilentlyContinue
+        if (-not $r -or $r.Installed -ne 1 -or $r.Major -ne 14) { continue }
+        $v = "{0}.{1}.{2}.{3}" -f $r.Major, $r.Minor, $r.Bld, $r.Rbld
+        if ($r.Minor -ge 40) { $version = $v; $minorOk = $true; break }
+        if (-not $version) { $version = $v }
+    }
+    $dll = Test-Path -LiteralPath (Join-Path $env:WINDIR "System32\msvcp140.dll")
+    return [pscustomobject]@{ Ok = ($minorOk -and $dll); Version = $version }
+}
+
+# Instala el runtime: winget primero y, si no basta, el redistribuible de
+# Microsoft con UAC. Devuelve la deteccion final o termina con un error que
+# dice que hacer a mano.
+function Install-VcRuntime {
+    $url = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
+
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+        Write-Info "trying winget..."
+        [void](Invoke-NativeLive "winget" @(
+            "install", "--id", "Microsoft.VCRedist.2015+.x64", "-e", "--silent",
+            "--accept-package-agreements", "--accept-source-agreements"
+        ))
+        $rt = Get-VcRuntime
+        if ($rt.Ok) { return $rt }
+    }
+
+    $exe = Join-Path $env:TEMP "vc_redist.x64.exe"
+    Write-Info "downloading $url"
+    try {
+        Invoke-WebRequest -Uri $url -OutFile $exe -UseBasicParsing
+    } catch {
+        Fail "could not download the Visual C++ runtime from $url. Install it by hand from that address and run install.cmd again."
+    }
+    # Se va a ejecutar como administrador: que la firme Microsoft.
+    $sig = Get-AuthenticodeSignature -LiteralPath $exe
+    if ($sig.Status -ne "Valid" -or $sig.SignerCertificate.Subject -notmatch "Microsoft") {
+        Fail "the downloaded file is not signed by Microsoft ($($sig.Status)), so it was not run. Install the runtime by hand from $url."
+    }
+
+    try {
+        $p = Start-Process -FilePath $exe -Verb RunAs -ArgumentList '/install','/quiet','/norestart' -Wait -PassThru
+    } catch {
+        Fail "the Visual C++ runtime was not installed: administrator permission was refused. Install it by hand from $url and run install.cmd again."
+    }
+    $code = $p.ExitCode
+    Remove-Item -LiteralPath $exe -Force -ErrorAction SilentlyContinue
+    if ($code -eq 3010) {
+        Write-Warn2 "the Visual C++ runtime recommends restarting Windows (exit code 3010)."
+    } elseif ($code -ne 0 -and $code -ne 1638) {
+        Write-Info "the installer exited with code $code"
+    }
+
+    $rt = Get-VcRuntime
+    if (-not $rt.Ok) {
+        Fail "the Visual C++ runtime is still missing or older than 14.40 (installer exit code $code). Install it by hand from $url and run install.cmd again."
+    }
+    return $rt
+}
+
+$vc = Get-VcRuntime
+if (-not $vc.Ok) {
+    $found = if ($vc.Version) { $vc.Version } else { "nothing" }
+    Write-Info "not usable yet (found: $found). It needs 14.40 or newer."
+    Write-Info "installing it now. Windows will ask for administrator permission (UAC)."
+    $vc = Install-VcRuntime
+}
+Write-Ok "Visual C++ runtime $($vc.Version) (x64)"
 
 # ---------------------------------------------------------------------------
 Write-Step "Python interpreter"
@@ -498,7 +582,7 @@ $template = @(
 )
 
 # Escribir la configuracion es una FUSION, no una sustitucion: el instalador
-# solo es dueño de las claves que describen ESTA maquina (python, script,
+# solo es dueno de las claves que describen ESTA maquina (python, script,
 # hf_home si se pasa -ModelsDir, y device). El resto son del usuario.
 $fresh = $true
 if (Test-Path -LiteralPath $configPath) {
