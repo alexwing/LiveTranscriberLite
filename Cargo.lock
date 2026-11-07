@@ -99,7 +99,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "asr-audio"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "serde",
  "thiserror 2.0.19",
@@ -109,7 +109,7 @@ dependencies = [
 
 [[package]]
 name = "asr-cli"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "anyhow",
  "asr-audio",
@@ -122,7 +122,7 @@ dependencies = [
 
 [[package]]
 name = "asr-core"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "anyhow",
  "asr-audio",
@@ -2063,7 +2063,7 @@ checksum = "92daf443525c4cce67b150400bc2316076100ce0b3686209eb8cf3c31612e6f0"
 
 [[package]]
 name = "live-transcriber-lite"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "anyhow",
  "asr-audio",
