@@ -3,7 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
-import { AppConfig, AudioDevice, Entry, ExportFormat, SessionEvent, Source, api, copyText, formatElapsed } from "./tauri";
+import { AppConfig, AudioDevice, Entry, ExportFormat, ProvisionEvent, SessionEvent, Source, api, copyText, formatElapsed } from "./tauri";
 import { Lang, STRINGS, Strings, initialLang } from "./i18n";
 import { Copy, Download, Mic, Stop, Trash } from "./icons";
 import { Settings } from "./Settings";
@@ -60,6 +60,21 @@ export default function App() {
 
   const fail = useCallback((e: unknown) => setError(errorText(e, tRef.current)), []);
 
+  // Preparacion del entorno (Python + modelo). `null`: no hace falta o ya
+  // termino. La app la lanza sola: nadie tiene que ejecutar install.cmd.
+  const [prep, setPrep] = useState<Prep | null>(null);
+  const beginPrep = useCallback((alreadyRunning: boolean) => {
+    setError("");
+    setPrep(EMPTY_PREP);
+    if (alreadyRunning) return;
+    api.provisionEnvironment().catch((e) => setPrep((p) => ({ ...(p ?? EMPTY_PREP), error: errorText(e, tRef.current) })));
+  }, []);
+  /** Un arranque que falla por falta de entorno lo prepara en vez de quejarse. */
+  const failOrPrep = useCallback(
+    (e: unknown) => (errorCode(e) === "not_provisioned" ? beginPrep(false) : fail(e)),
+    [beginPrep, fail],
+  );
+
   useEffect(() => {
     localStorage.setItem("uiLang", lang);
     api.setUiLanguage(lang).catch(() => {});
@@ -78,8 +93,14 @@ export default function App() {
     api.listDevices("input").then(setInputs).catch(fail);
     api.getTranscript().then(setEntries).catch(fail);
     api.isRunning().then(setRunning).catch(fail);
+    api
+      .environmentStatus()
+      .then((s) => {
+        if (!s.ready) beginPrep(s.provisioning);
+      })
+      .catch(fail);
     refreshDerived();
-  }, [fail, refreshDerived]);
+  }, [fail, refreshDerived, beginPrep]);
 
   // Los listeners se registran una vez; solo usan setState funcional.
   useEffect(() => {
@@ -131,10 +152,32 @@ export default function App() {
         }
       }),
       // El atajo y la bandeja mandan el error del comando entero ({ message, code }).
-      on<unknown>("error", (e) => setError(errorText(e, tRef.current))),
+      on<unknown>("error", (e) => failOrPrep(e)),
+      on<ProvisionEvent>("provision", (ev) => {
+        switch (ev.kind) {
+          case "step":
+            setPrep((p) => p && { ...p, step: ev.index, total: ev.total, title: ev.title, detail: "", error: undefined, consent: false });
+            break;
+          case "consent":
+            setPrep((p) => p && { ...p, consent: true });
+            break;
+          case "line":
+            setPrep((p) => p && { ...p, detail: ev.text });
+            break;
+          case "done":
+            if (ev.ok) {
+              setPrep(null);
+              setNotice({ text: tRef.current.prepDone });
+              api.getConfig().then(setConfig).catch(() => {});
+            } else {
+              setPrep((p) => ({ ...(p ?? EMPTY_PREP), error: ev.message || tRef.current.prepFailed }));
+            }
+            break;
+        }
+      }),
     ];
     return () => offs.forEach((off) => off());
-  }, []);
+  }, [failOrPrep]);
 
   // Cronometro: un tick por segundo solo mientras hay sesion en marcha.
   useEffect(() => {
@@ -211,7 +254,7 @@ export default function App() {
       }
       setRunning(await api.isRunning());
     } catch (e) {
-      fail(e);
+      failOrPrep(e);
     } finally {
       setBusy(false);
     }
@@ -300,6 +343,9 @@ export default function App() {
         />
       ) : (
         <main>
+          {prep ? (
+            <PrepPanel prep={prep} t={t} onRetry={() => beginPrep(false)} />
+          ) : (
           <div className={`hero${showTranscript ? " compact" : ""}`}>
             <button className={`power${running ? " running" : ""}${loading ? " loading" : ""}`} disabled={busy} onClick={toggle} title={running ? t.tapToStop : t.tapToStart}>
               {loading ? <span className="spinner" /> : running ? <Stop size={28} /> : <Mic size={36} strokeWidth={2.5} />}
@@ -321,6 +367,7 @@ export default function App() {
             )}
             {warning && <span className="warn">{warning}</span>}
           </div>
+          )}
 
           {showTranscript && <Transcript entries={entries} partials={partials} running={running} t={t} />}
 
@@ -360,4 +407,47 @@ function errorText(e: unknown, t: Strings): string {
     return (e as { message: string }).message;
   }
   return String(e);
+}
+
+interface Prep {
+  step: number;
+  total: number;
+  title: string;
+  detail: string;
+  error?: string;
+  /** Hay un aviso de UAC esperando en la barra de tareas. */
+  consent?: boolean;
+}
+
+const EMPTY_PREP: Prep = { step: 0, total: 0, title: "", detail: "" };
+
+function errorCode(e: unknown): string | undefined {
+  const code = typeof e === "object" && e !== null ? (e as { code?: unknown }).code : undefined;
+  return typeof code === "string" ? code : undefined;
+}
+
+/** Lo que se ve mientras la app se prepara sola la primera vez. */
+function PrepPanel({ prep, t, onRetry }: { prep: Prep; t: Strings; onRetry: () => void }) {
+  const name = t.stepNames[prep.title] ?? prep.title;
+  const pct = prep.total ? Math.round(((prep.step - 0.5) / prep.total) * 100) : 3;
+  return (
+    <div className="hero prep">
+      {prep.error ? (
+        <>
+          <span className="label err">{t.prepFailed}</span>
+          <span className="prep-error" title={prep.error}>{prep.error}</span>
+          <button className="primary" onClick={onRetry}>{t.retry}</button>
+        </>
+      ) : (
+        <>
+          <span className="spinner" />
+          <span className="label active">{t.prepTitle}</span>
+          <span className="prep-step">{prep.total ? t.prepStep(prep.step, prep.total, name) : t.prepStarting}</span>
+          <div className="bar"><i style={{ width: `${Math.max(3, pct)}%` }} /></div>
+          <span className="prep-detail" title={prep.detail}>{prep.detail || "\u00a0"}</span>
+          {prep.consent ? <span className="warn prep-consent">{t.prepConsent}</span> : <span className="prep-note">{t.prepNote}</span>}
+        </>
+      )}
+    </div>
+  );
 }

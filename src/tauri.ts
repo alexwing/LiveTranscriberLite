@@ -53,6 +53,20 @@ export type SessionEvent =
   | { kind: "capture_failed"; source: Source; message: string }
   | { kind: "stopped"; source: Source };
 
+/** Progreso de la preparacion del entorno (Python y modelo) que la app hace
+ *  sola la primera vez. `title` llega en ingles, tal como lo escribe el script. */
+export type ProvisionEvent =
+  | { kind: "step"; index: number; total: number; title: string }
+  | { kind: "line"; text: string }
+  /** Windows va a pedir permiso de administrador (UAC). */
+  | { kind: "consent" }
+  | { kind: "done"; ok: boolean; message?: string | null };
+
+export interface EnvStatus {
+  ready: boolean;
+  provisioning: boolean;
+}
+
 /** Error de un comando. `code` lo llevan los fallos que la interfaz explica
  *  con sus propias palabras (ver `errorText` en App.tsx). */
 export class CmdError extends Error {
@@ -98,6 +112,10 @@ export const api = {
   /** El menu de la bandeja lo dibuja el sistema, no el webview: hay que
    *  decirle el idioma aparte. */
   setUiLanguage: (lang: string) => call<void>("set_ui_language", { lang }),
+  /** Si Python y el sidecar estan listos, y si se estan preparando ahora. */
+  environmentStatus: () => call<EnvStatus>("environment_status"),
+  /** Prepara el entorno en segundo plano; el progreso llega por `provision`. */
+  provisionEnvironment: () => call<void>("provision_environment"),
 };
 
 /** Copia al portapapeles con respaldo, porque el webview puede bloquear la

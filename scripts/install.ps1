@@ -443,7 +443,7 @@ if (-not $python) {
         Write-Info "installing Python 3.12 with winget..."
         # 0x8A15002B es "ya estaba instalado", y eso no es un fallo.
         $wingetCode = Invoke-NativeLive "winget" @(
-            "install", "-e", "--id", "Python.Python.3.12",
+            "install", "-e", "--id", "Python.Python.3.12", "--silent",
             "--accept-source-agreements", "--accept-package-agreements"
         )
         $wingetOk = ($wingetCode -eq 0 -or $wingetCode -eq 0x8A15002B)

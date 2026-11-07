@@ -592,3 +592,74 @@ select:disabled {
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* ------------------------------------------------ preparacion del entorno */
+
+.hero.prep {
+  gap: 8px;
+  padding: 22px 24px 8px;
+  text-align: center;
+}
+
+.prep-step {
+  font-size: 13px;
+  color: var(--text);
+}
+
+.prep-detail,
+.prep-error {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.prep-error {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  white-space: normal;
+  color: var(--danger);
+}
+
+.prep-note {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.label.err {
+  color: var(--danger);
+}
+
+.bar {
+  width: 100%;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.bar i {
+  display: block;
+  height: 100%;
+  background: var(--success);
+  transition: width 0.4s;
+}
+
+button.primary {
+  padding: 6px 18px;
+  border: none;
+  border-radius: 6px;
+  background: var(--success);
+  color: var(--surface-0);
+  font-weight: 600;
+}
+
+.prep-consent {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+}

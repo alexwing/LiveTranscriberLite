@@ -59,9 +59,9 @@ jobs:
 
             **Instalacion**
             1. Instala `LiveTranscriber.Lite_*_x64-setup.exe` (o el `.msi`).
-            2. La primera vez, ejecuta `install.cmd -InstallPython` desde la carpeta de instalacion (crea el entorno de Python y descarga el modelo, ~700 MB). Anade `-Gpu` para usar la GPU con DirectML.
+            2. Abre la app. La primera vez se prepara sola (runtime de Visual C++, Python y el modelo de voz, ~1 GB) y lo cuenta en la ventana; Windows puede pedir permiso de administrador una vez. Para la GPU, despues ejecuta `install.cmd -Gpu` desde la carpeta de instalacion.
 
-            El `.zip` portable trae lo mismo sin instalador: descomprimelo y ejecuta su `install.cmd`.
+            El `.zip` portable trae lo mismo sin instalador: descomprimelo y abre `LiveTranscriberLite.exe`.
 
             Solo Windows 10/11 x64.
 

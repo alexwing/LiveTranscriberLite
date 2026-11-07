@@ -17,7 +17,7 @@ pub mod transcript;
 ///
 /// Vive aqui y no en cada modulo para que el proximo sidecar no vuelva a
 /// olvidarlo.
-pub(crate) fn no_console(command: &mut std::process::Command) {
+pub fn no_console(command: &mut std::process::Command) {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;

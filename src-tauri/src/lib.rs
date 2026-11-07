@@ -17,6 +17,8 @@ use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
+mod provision;
+
 use asr_core::CONFIG_FILE;
 
 /// Error que viaja al frontend como `{ message }`, igual que en TapoController.
@@ -225,6 +227,8 @@ pub struct AppState {
     sidecar: Mutex<Option<Arc<SharedSidecar>>>,
     transcript: Arc<Mutex<Transcript>>,
     running: AtomicBool,
+    /// install.ps1 en marcha desde la app (ver [`provision`]).
+    provisioning: AtomicBool,
 }
 
 impl AppState {
@@ -281,6 +285,7 @@ impl AppState {
             sidecar: Mutex::new(None),
             transcript: Arc::new(Mutex::new(Transcript::new())),
             running: AtomicBool::new(false),
+            provisioning: AtomicBool::new(false),
         }
     }
 }
@@ -614,6 +619,20 @@ fn start_internal(app: &AppHandle, state: &AppState) -> CmdResult<()> {
 
 fn launch(app: &AppHandle, state: &AppState) -> CmdResult<()> {
     let config = state.config.lock().unwrap().clone();
+    // Sin entorno no hay nada que arrancar. La interfaz, con este codigo,
+    // prepara el entorno en vez de ensenar un error de rutas.
+    if state.provisioning.load(Ordering::SeqCst) {
+        return Err(CmdError::coded(
+            "provisioning",
+            "the Python environment is still being prepared",
+        ));
+    }
+    if !provision::environment_ready(app, &config) {
+        return Err(CmdError::coded(
+            "not_provisioned",
+            "the Python environment is not installed yet",
+        ));
+    }
     let mut sidecar = config.sidecar();
 
     sidecar.script = require_existing(
@@ -1050,6 +1069,8 @@ pub fn run() {
             pick_output_dir,
             reveal_output_dir,
             set_ui_language,
+            provision::environment_status,
+            provision::provision_environment,
         ])
         .setup(|app| {
             let handle = app.handle().clone();

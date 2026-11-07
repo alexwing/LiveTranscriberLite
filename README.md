@@ -27,19 +27,19 @@ la hace el VAD Silero.
 
 1. Descarga `LiveTranscriber.Lite_<versión>_x64-setup.exe` (o el `.msi`) de
    [Releases](https://github.com/alexwing/LiveTranscriberLite/releases) e instálalo.
-2. La app necesita Python y el modelo, que no van dentro del instalador. La primera vez, ejecuta
-   el `install.cmd` de la carpeta de instalación, o abre la app y sigue el aviso, que te dice la
-   ruta exacta:
+2. Ábrela. La primera vez se prepara sola, con el progreso en la ventana: instala el runtime de
+   Microsoft Visual C++ si falta (Windows pide permiso de administrador una vez), Python si no
+   lo hay, el entorno y el modelo de voz (~1 GB) en `%LOCALAPPDATA%\LiveTranscriberLite`. Tarda
+   unos minutos; después arranca al momento.
 
-   ```bash
-   "%LOCALAPPDATA%\LiveTranscriber Lite\install.cmd" -InstallPython
-   ```
+Para usar la GPU, cuando ya esté preparada, ejecuta una vez:
 
-   Crea el entorno y descarga el modelo en `%LOCALAPPDATA%\LiveTranscriberLite`. Añade `-Gpu`
-   para usar la GPU, y quita `-InstallPython` si ya tienes Python 3.10–3.13. Si falta el runtime de Microsoft Visual C++, `install.cmd` lo instala también; Windows pide permiso de administrador una sola vez.
+```bash
+"%LOCALAPPDATA%\LiveTranscriber Lite\install.cmd" -Gpu
+```
 
-También hay un `.zip` portable con el ejecutable y los scripts: descomprímelo y ejecuta su
-`install.cmd`.
+También hay un `.zip` portable con el ejecutable y los scripts: descomprímelo y abre
+`LiveTranscriberLite.exe`; se prepara igual.
 
 Solo hay versión para Windows: la captura de audio usa WASAPI (micrófono y loopback del sistema).
 
