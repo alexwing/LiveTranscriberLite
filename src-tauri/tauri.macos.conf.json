@@ -1,0 +1,15 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "resources": {
+      "../target/release/asr-cli.exe": null,
+      "../install.cmd": null,
+      "../scripts/install.ps1": null,
+      "../scripts/verify.ps1": null
+    },
+    "macOS": {
+      "signingIdentity": "-",
+      "minimumSystemVersion": "13.0"
+    }
+  }
+}

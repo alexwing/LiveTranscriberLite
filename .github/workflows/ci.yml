@@ -40,3 +40,56 @@ jobs:
 
       - name: Rust tests
         run: cargo test --workspace --locked
+
+  # Port a macOS: que compile y pasen los tests, para no romperlo sin darnos
+  # cuenta. La captura de macOS (Core Audio, crates/asr-audio/src/coreaudio.rs)
+  # se compila aqui, pero el runner no tiene audio: no se prueba en vivo.
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Frontend (tsc + vite)
+        run: |
+          npm ci
+          npm run build
+
+      # Sin placeholder de asr-cli.exe: src-tauri/tauri.macos.conf.json lo quita
+      # de los recursos, y tauri-build falla aqui si eso deja de funcionar.
+      - name: Rust tests
+        run: cargo test --workspace --locked
+
+  # install.sh de verdad, en un Mac limpio: Python por uv (como en un Mac sin
+  # Python valido), venv, onnxruntime, modelo y la prueba del reconocedor con
+  # el audio de muestra. Es lo unico que prueba el camino de macOS de punta a
+  # punta; la captura no se puede probar porque el runner no tiene audio.
+  macos-install:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install.sh (uv, venv, onnxruntime, models)
+        env:
+          LT_FORCE_UV: "1"
+        run: bash scripts/install.sh --install-python --skip-build --skip-verify
+
+      - name: Recognizer test with the sample audio
+        run: .venv/bin/python scripts/smoke_test.py --python .venv/bin/python --device cpu
+
+      - name: The configuration points at the venv
+        run: |
+          cfg="$HOME/Library/Application Support/LiveTranscriberLite/transcriber-config.toml"
+          cat "$cfg"
+          grep -q "^python = '$PWD/.venv/bin/python'$" "$cfg"
+
+      - name: A second run reuses everything
+        run: bash scripts/install.sh --skip-build --skip-verify

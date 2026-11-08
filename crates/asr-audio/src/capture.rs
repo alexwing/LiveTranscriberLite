@@ -1,7 +1,9 @@
 //! Hilos de captura WASAPI. Todos entregan lo mismo aguas abajo: bloques de
 //! muestras f32 mono a 16 kHz.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
+#[cfg(windows)]
+use std::sync::atomic::Ordering;
 use std::sync::mpsc::SyncSender;
 use std::sync::Arc;
 use std::thread::JoinHandle;
@@ -10,6 +12,7 @@ use crate::Result;
 
 /// Cuanto acumular antes de mandar aguas abajo. 100 ms no satura el canal y
 /// queda muy por debajo del chunk mas pequeno del modelo (105 ms).
+#[cfg(windows)]
 const SEND_SAMPLES: usize = crate::TARGET_RATE as usize / 10;
 
 /// Buffer a pedir cuando no podemos preguntarle su periodo al dispositivo.
@@ -83,7 +86,18 @@ pub fn spawn_capture(
         .map_err(|e| crate::AudioError::Thread(e.to_string()))
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
+pub fn spawn_capture(
+    target: CaptureTarget,
+    running: Arc<AtomicBool>,
+    tx: SyncSender<Vec<f32>>,
+    on_open: Option<OnOpen>,
+    on_error: Option<OnError>,
+) -> Result<JoinHandle<()>> {
+    crate::coreaudio::spawn_capture(target, running, tx, on_open, on_error)
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 pub fn spawn_capture(
     _target: CaptureTarget,
     _running: Arc<AtomicBool>,

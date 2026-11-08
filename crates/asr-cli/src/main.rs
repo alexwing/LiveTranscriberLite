@@ -351,7 +351,11 @@ fn run(args: RunArgs) -> Result<()> {
     sidecar.python = args.python.unwrap_or(config.python.clone());
     sidecar.script = args.script.unwrap_or(config.script.clone());
     if sidecar.python.as_os_str().is_empty() {
-        sidecar.python = PathBuf::from(".venv/Scripts/python.exe");
+        sidecar.python = PathBuf::from(if cfg!(windows) {
+            ".venv/Scripts/python.exe"
+        } else {
+            ".venv/bin/python"
+        });
     }
     if sidecar.script.as_os_str().is_empty() {
         sidecar.script = PathBuf::from("sidecar/asr_server.py");

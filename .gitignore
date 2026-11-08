@@ -38,3 +38,7 @@ transcriber-config.toml
 # Logs de la app (rotan por fecha) y copias de seguridad de la config.
 /logs/
 transcriber-config.toml.*
+
+# install.sh desde el repositorio: el Python de uv y el propio uv.
+/python/
+/tools/

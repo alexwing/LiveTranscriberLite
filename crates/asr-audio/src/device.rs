@@ -80,7 +80,13 @@ fn enumerate(kind: DeviceKind) -> Result<Vec<AudioDevice>> {
     Ok(devices)
 }
 
-#[cfg(not(windows))]
+/// En macOS las salidas se reducen a una: el tap de Core Audio es global.
+#[cfg(target_os = "macos")]
+pub fn list_devices(kind: DeviceKind) -> Result<Vec<AudioDevice>> {
+    crate::coreaudio::list_devices(kind)
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 pub fn list_devices(_kind: DeviceKind) -> Result<Vec<AudioDevice>> {
     Err(crate::AudioError::UnsupportedPlatform)
 }

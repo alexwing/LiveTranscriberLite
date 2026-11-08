@@ -42,7 +42,7 @@ pub struct EnvStatus {
 /// Si hay con que arrancar el sidecar: el interprete y el script existen.
 pub fn environment_ready(app: &AppHandle, config: &AppConfig) -> bool {
     let sidecar = config.sidecar();
-    let python = or_default(&sidecar.python, &[".venv", "Scripts", "python.exe"]);
+    let python = or_default(&sidecar.python, crate::DEFAULT_PYTHON);
     let script = or_default(&sidecar.script, &["sidecar", "asr_server.py"]);
     resolve_existing(Some(app), &python).is_some() && resolve_existing(Some(app), &script).is_some()
 }
@@ -63,19 +63,11 @@ pub fn provision_environment(app: AppHandle, state: tauri::State<'_, AppState>) 
     if state.provisioning.swap(true, Ordering::SeqCst) {
         return Ok(());
     }
-    // Se lanza install.cmd, no PowerShell directamente: un .exe sin firmar
-    // que arranca "powershell -ExecutionPolicy Bypass" sin ventana es lo que
-    // el antivirus de Windows marca como troyano (Bearfoos.A!ml, comprobado
-    // con el instalador). install.cmd hace esa llamada por nosotros.
-    let found = (
-        resolve_existing(Some(&app), Path::new("install.cmd")),
-        resolve_existing(Some(&app), Path::new("scripts/install.ps1")),
-    );
-    let (Some(script), Some(ps1)) = found else {
+    let Some((script, steps_from)) = find_installer(&app) else {
         state.provisioning.store(false, Ordering::SeqCst);
-        return Err(CmdError::new(
-            "the installer (install.cmd, scripts/install.ps1) is missing; reinstall the application",
-        ));
+        return Err(CmdError::new(format!(
+            "the installer ({INSTALLER_FILES}) is missing; reinstall the application"
+        )));
     };
     let config_path = state.config_path.clone();
 
@@ -84,7 +76,7 @@ pub fn provision_environment(app: AppHandle, state: tauri::State<'_, AppState>) 
         .name("provision".into())
         .spawn(move || {
             tracing::info!("preparando el entorno con {}", script.display());
-            let result = run_installer(&worker, &script, &ps1, &config_path);
+            let result = run_installer(&worker, &script, &steps_from, &config_path);
             let state = worker.state::<AppState>();
             if result.is_ok() {
                 // install.ps1 acaba de escribir las rutas de Python: sin
@@ -116,36 +108,69 @@ pub fn provision_environment(app: AppHandle, state: tauri::State<'_, AppState>) 
     Ok(())
 }
 
-/// Ejecuta install.ps1 y traduce su salida en eventos. Devuelve el motivo del
-/// fallo, el que el propio script imprime con `FAILED:` si lo hay.
+/// Lo que se ve en el error si falta el instalador de esta plataforma.
+#[cfg(windows)]
+const INSTALLER_FILES: &str = "install.cmd, scripts/install.ps1";
+#[cfg(not(windows))]
+const INSTALLER_FILES: &str = "scripts/install.sh";
+
+/// El instalador de esta plataforma: lo que se lanza y el script del que se
+/// cuentan los pasos.
+///
+/// En Windows se lanza install.cmd, no PowerShell directamente: un .exe sin
+/// firmar que arranca "powershell -ExecutionPolicy Bypass" sin ventana es lo
+/// que el antivirus marca como troyano (Bearfoos.A!ml, comprobado con el
+/// instalador). install.cmd hace esa llamada por nosotros. En macOS es
+/// install.sh, que hace las dos cosas.
+fn find_installer(app: &AppHandle) -> Option<(std::path::PathBuf, std::path::PathBuf)> {
+    if cfg!(windows) {
+        Some((
+            resolve_existing(Some(app), Path::new("install.cmd"))?,
+            resolve_existing(Some(app), Path::new("scripts/install.ps1"))?,
+        ))
+    } else {
+        let sh = resolve_existing(Some(app), Path::new("scripts/install.sh"))?;
+        Some((sh.clone(), sh))
+    }
+}
+
+/// Ejecuta el instalador y traduce su salida en eventos. Devuelve el motivo
+/// del fallo, el que el propio script imprime con `FAILED:` si lo hay.
 fn run_installer(
     app: &AppHandle,
     script: &Path,
-    ps1: &Path,
+    steps_from: &Path,
     config_path: &Path,
 ) -> Result<(), String> {
-    let total = std::fs::read_to_string(ps1)
+    let total = std::fs::read_to_string(steps_from)
         .map(|text| count_steps(&text))
         .unwrap_or(0);
 
-    let mut command = Command::new("cmd.exe");
     // Sin verificacion: el paso de dependencias ya comprueba que onnxruntime
     // carga, y el primer arranque carga el modelo de todos modos.
-    let args = ["-InstallPython", "-SkipVerify"];
     #[cfg(windows)]
-    {
+    let mut command = {
         // cmd no sigue las reglas de comillas de Rust: con /s quita las de
         // fuera y deja intacta la ruta, que lleva espacios
         // ("LiveTranscriber Lite").
         use std::os::windows::process::CommandExt;
+        let mut command = Command::new("cmd.exe");
         command.raw_arg(format!(
-            "/d /s /c \"\"{}\" {}\"",
-            script.display(),
-            args.join(" ")
+            "/d /s /c \"\"{}\" -InstallPython -SkipVerify\"",
+            script.display()
         ));
-    }
+        command
+    };
+    // bash explicito: el script viaja en el bundle y no hace falta que
+    // conserve el bit de ejecucion.
     #[cfg(not(windows))]
-    command.arg(script).args(args);
+    let mut command = {
+        let mut command = Command::new("/bin/bash");
+        command
+            .arg(script)
+            .args(["--install-python", "--skip-verify"]);
+        command
+    };
     command
         // La misma configuracion que lee la app, no la que el script deduciria.
         .env(asr_core::CONFIG_ENV, config_path)
@@ -156,7 +181,7 @@ fn run_installer(
 
     let mut child = command
         .spawn()
-        .map_err(|e| format!("could not start PowerShell: {e}"))?;
+        .map_err(|e| format!("could not start the installer: {e}"))?;
     let stdout = child.stdout.take().ok_or("no stdout from the installer")?;
     let stderr = child.stderr.take().ok_or("no stderr from the installer")?;
 
@@ -214,13 +239,16 @@ fn lossy_lines<R: Read>(reader: R) -> impl Iterator<Item = String> {
         .map(|bytes| String::from_utf8_lossy(&bytes).trim_end().to_string())
 }
 
-/// Pasos que va a anunciar el script: sus `Write-Step "..."`, menos el de
-/// verificacion, que se salta.
+/// Pasos que va a anunciar el script: sus `Write-Step "..."` (install.ps1) o
+/// `step "..."` (install.sh), menos el de verificacion, que se salta.
 fn count_steps(script: &str) -> u32 {
     script
         .lines()
         .map(str::trim_start)
-        .filter(|l| l.starts_with("Write-Step \"") && !l.contains("Verification"))
+        .filter(|l| {
+            (l.starts_with("Write-Step \"") || l.starts_with("step \""))
+                && !l.contains("Verification")
+        })
         .count() as u32
 }
 
@@ -305,6 +333,26 @@ mod tests {
             .filter(|l| l.trim_start().starts_with("Write-Step \""))
             .count() as u32;
         assert_eq!(total + 1, with_verify);
+    }
+
+    #[test]
+    fn cuenta_los_pasos_de_install_sh_igual_que_los_de_install_ps1() {
+        let sh = include_str!("../../scripts/install.sh");
+        let ps1 = include_str!("../../scripts/install.ps1");
+        // En macOS no hay paso del runtime de Visual C++: uno menos.
+        assert_eq!(count_steps(sh) + 1, count_steps(ps1));
+        // Los titulos tienen que ser los mismos: la interfaz los traduce.
+        for title in [
+            "Preflight checks",
+            "Python interpreter",
+            "Virtual environment",
+            "Sidecar dependencies",
+            "Configuration",
+            "Models",
+            "Application",
+        ] {
+            assert!(sh.contains(&format!("step \"{title}\"")), "falta {title} en install.sh");
+        }
     }
 
     #[test]

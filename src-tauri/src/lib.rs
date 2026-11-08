@@ -129,6 +129,12 @@ fn search_bases(app: Option<&AppHandle>) -> Vec<PathBuf> {
     bases
 }
 
+/// El interprete del entorno, relativo, si la configuracion no dice otro.
+#[cfg(windows)]
+pub(crate) const DEFAULT_PYTHON: &[&str] = &[".venv", "Scripts", "python.exe"];
+#[cfg(not(windows))]
+pub(crate) const DEFAULT_PYTHON: &[&str] = &[".venv", "bin", "python"];
+
 /// Donde vive `transcriber-config.toml`.
 ///
 /// La decide `asr-core`, no esta capa: tambien la necesita `asr-cli`, y tener
@@ -165,9 +171,15 @@ fn resolve_existing(app: Option<&AppHandle>, path: &Path) -> Option<PathBuf> {
 /// "ejecuta scripts\install.ps1" a secas manda al usuario a buscar un fichero
 /// que no esta en su directorio de trabajo, sino entre los recursos.
 fn installer_hint(app: &AppHandle) -> String {
-    match resolve_existing(Some(app), Path::new("scripts/install.ps1")) {
+    // En macOS el bundle no lleva install.ps1 (tauri.macos.conf.json).
+    let (script, fallback) = if cfg!(windows) {
+        ("scripts/install.ps1", "scripts\\install.ps1")
+    } else {
+        ("scripts/install.sh", "scripts/install.sh")
+    };
+    match resolve_existing(Some(app), Path::new(script)) {
         Some(found) => format!("\"{}\"", found.display()),
-        None => "scripts\\install.ps1".to_string(),
+        None => fallback.to_string(),
     }
 }
 
@@ -699,7 +711,7 @@ fn launch(app: &AppHandle, state: &AppState) -> CmdResult<()> {
     )?;
     let python = require_existing(
         app,
-        &or_default(&sidecar.python, &[".venv", "Scripts", "python.exe"]),
+        &or_default(&sidecar.python, DEFAULT_PYTHON),
         "Python interpreter",
     )?;
     // Decir QUE se va a usar, no solo que fallo si falla. Sin esta
