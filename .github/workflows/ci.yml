@@ -72,3 +72,29 @@ jobs:
 
       - name: Rust tests
         run: cargo test --workspace --locked
+
+  # install.sh de verdad, en un Mac limpio: Python por uv (como en un Mac sin
+  # Python valido), venv, onnxruntime, modelo y la prueba del reconocedor con
+  # el audio de muestra. Es lo unico que prueba el camino de macOS de punta a
+  # punta; la captura no se puede probar porque el runner no tiene audio.
+  macos-install:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install.sh (uv, venv, onnxruntime, models)
+        env:
+          LT_FORCE_UV: "1"
+        run: bash scripts/install.sh --install-python --skip-build --skip-verify
+
+      - name: Recognizer test with the sample audio
+        run: .venv/bin/python scripts/smoke_test.py --python .venv/bin/python --device cpu
+
+      - name: The configuration points at the venv
+        run: |
+          cfg="$HOME/Library/Application Support/LiveTranscriberLite/transcriber-config.toml"
+          cat "$cfg"
+          grep -q "^python = '$PWD/.venv/bin/python'$" "$cfg"
+
+      - name: A second run reuses everything
+        run: bash scripts/install.sh --skip-build --skip-verify

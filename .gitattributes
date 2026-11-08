@@ -9,3 +9,6 @@
 *.png binary
 *.ico binary
 *.wav binary
+
+# bash en macOS: con CRLF el script no arranca.
+*.sh text eol=lf

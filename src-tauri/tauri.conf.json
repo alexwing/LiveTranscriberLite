@@ -37,6 +37,7 @@
       "../sidecar/asr_server.py": "sidecar/asr_server.py",
       "../sidecar/requirements.txt": "sidecar/requirements.txt",
       "../scripts/install.ps1": "scripts/install.ps1",
+      "../scripts/install.sh": "scripts/install.sh",
       "../scripts/verify.ps1": "scripts/verify.ps1",
       "../scripts/fetch_models.py": "scripts/fetch_models.py",
       "../scripts/smoke_test.py": "scripts/smoke_test.py",
