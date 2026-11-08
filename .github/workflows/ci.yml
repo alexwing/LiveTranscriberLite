@@ -40,3 +40,35 @@ jobs:
 
       - name: Rust tests
         run: cargo test --workspace --locked
+
+  # Primer paso del port a macOS: que compile y pasen los tests, para no romperlo
+  # sin darnos cuenta. La captura todavia es solo WASAPI: en macOS spawn_capture
+  # devuelve UnsupportedPlatform, asi que la app arranca pero no transcribe.
+  macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Frontend (tsc + vite)
+        run: |
+          npm ci
+          npm run build
+
+      # El bundle declara asr-cli.exe (el de Windows) como recurso y tauri-build
+      # exige que exista; para compilar y probar basta un fichero vacio.
+      - name: Placeholder for the bundled asr-cli.exe
+        run: |
+          mkdir -p target/release
+          touch target/release/asr-cli.exe
+
+      - name: Rust tests
+        run: cargo test --workspace --locked
