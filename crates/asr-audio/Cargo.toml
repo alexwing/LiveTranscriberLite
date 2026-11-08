@@ -10,6 +10,7 @@ description = "Captura WASAPI (loopback y microfono) entregada como 16 kHz mono 
 serde = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+rustfft = "6"
 
 [target.'cfg(windows)'.dependencies]
 wasapi = "0.23.0"

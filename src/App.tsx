@@ -9,6 +9,7 @@ import { Copy, Download, Mic, Stop, Trash } from "./icons";
 import { Settings } from "./Settings";
 import { TitleBar } from "./TitleBar";
 import { Level, Meter, Transcript } from "./Transcript";
+import { BandsRef, Equalizer } from "./Equalizer";
 
 type PerSource<T> = Partial<Record<Source, T>>;
 type Ready = { device: string; fallback: boolean };
@@ -63,6 +64,9 @@ export default function App() {
   // Preparacion del entorno (Python + modelo). `null`: no hace falta o ya
   // termino. La app la lanza sola: nadie tiene que ejecutar install.cmd.
   const [prep, setPrep] = useState<Prep | null>(null);
+  // Espectro por fuente para el ecualizador. Ref y no estado: llega 20 veces
+  // por segundo y el canvas lo lee solo.
+  const bandsRef: BandsRef = useRef({});
   const beginPrep = useCallback((alreadyRunning: boolean) => {
     setError("");
     setPrep(EMPTY_PREP);
@@ -119,6 +123,7 @@ export default function App() {
             break;
           case "level":
             setLevels((l) => ({ ...l, [ev.source]: { rms: ev.rms, gain: ev.gain, ceiling: ev.gain_at_ceiling } }));
+            bandsRef.current[ev.source] = ev.bands ?? [];
             break;
           case "device_fallback":
             setFallbacks((f) => ({ ...f, [ev.source]: tRef.current.deviceFallback(ev.wanted, ev.using) }));
@@ -136,6 +141,7 @@ export default function App() {
             setError(ev.source ? `[${ev.source}] ${ev.message}` : ev.message);
             break;
           case "stopped":
+            bandsRef.current[ev.source] = [];
             setLevels((l) => ({ ...l, [ev.source]: undefined }));
             setPartials((p) => ({ ...p, [ev.source]: "" }));
             break;
@@ -149,6 +155,7 @@ export default function App() {
           setStartedAt(null);
           setLevels({});
           setPartials({});
+          bandsRef.current = {};
         }
       }),
       // El atajo y la bandeja mandan el error del comando entero ({ message, code }).
@@ -310,6 +317,10 @@ export default function App() {
   const warning = ready?.fallback ? t.gpuFallback : fallbacks.mic ?? fallbacks.system;
 
   const label = loading ? t.loadingModel : running ? t.listening : t.tapToStart;
+  // Las fuentes que se capturan, sistema primero (arriba en el ecualizador).
+  const eqSources = (["system", "mic"] as Source[]).filter((s) =>
+    s === "system" ? config?.capture_system : config?.capture_mic,
+  );
   const footer = error ? (
     <p className="footer err" role="alert" title={t.dismiss} onClick={() => setError("")}>
       <i className="dot red" />
@@ -347,10 +358,23 @@ export default function App() {
             <PrepPanel prep={prep} t={t} onRetry={() => beginPrep(false)} />
           ) : (
           <div className={`hero${showTranscript ? " compact" : ""}`}>
-            <button className={`power${running ? " running" : ""}${loading ? " loading" : ""}`} disabled={busy} onClick={toggle} title={running ? t.tapToStop : t.tapToStart}>
-              {loading ? <span className="spinner" /> : running ? <Stop size={28} /> : <Mic size={36} strokeWidth={2.5} />}
-              {running && !loading && <span className="ring" />}
-            </button>
+            <div className="power-wrap">
+              <button className={`power${running ? " running" : ""}${loading ? " loading" : ""}`} disabled={busy} onClick={toggle} title={running ? t.tapToStop : t.tapToStart}>
+                {loading ? <span className="spinner" /> : running ? <Stop size={28} /> : <Mic size={36} strokeWidth={2.5} />}
+                {running && !loading && <span className="ring" />}
+              </button>
+              {eqSources.length > 0 &&
+                (["left", "right"] as const).map((side) => (
+                  <Equalizer
+                    key={side}
+                    side={side}
+                    bands={bandsRef}
+                    sources={eqSources}
+                    dim={!running || loading}
+                    title={t.eqTitle(eqSources.length > 1)}
+                  />
+                ))}
+            </div>
             <span className={`label${running ? " active" : ""}`}>{label}</span>
             {running && !loading ? (
               <div className="timer">

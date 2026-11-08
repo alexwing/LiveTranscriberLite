@@ -56,6 +56,7 @@ const es = {
   meterTitle: (rms: number, gain: number) => `RMS ${rms.toFixed(3)}, ganancia ×${gain.toFixed(1)}`,
   tagMic: "micrófono",
   tagSystem: "sistema",
+  eqTitle: (both: boolean): string => (both ? "Arriba, el audio del sistema; abajo, el micrófono" : "Espectro del audio"),
 
   // ------------------------------------------------------------- resultado
   phrases: (n: number) => (n === 1 ? "1 frase" : `${n} frases`),
@@ -141,6 +142,7 @@ const en: Strings = {
   meterTitle: (rms: number, gain: number) => `RMS ${rms.toFixed(3)}, gain ×${gain.toFixed(1)}`,
   tagMic: "microphone",
   tagSystem: "system",
+  eqTitle: (both: boolean) => (both ? "Top: system audio; bottom: microphone" : "Audio spectrum"),
 
   phrases: (n: number) => (n === 1 ? "1 phrase" : `${n} phrases`),
   saveTxt: "Save .txt",

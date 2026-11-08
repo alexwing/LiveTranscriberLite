@@ -20,10 +20,12 @@
 mod capture;
 mod device;
 mod normalize;
+mod spectrum;
 
 pub use capture::{spawn_capture, CaptureOpened, CaptureTarget, OnError, OnOpen};
 pub use device::{list_devices, AudioDevice, DeviceKind};
 pub use normalize::{rms, Normalizer};
+pub use spectrum::Spectrum;
 
 /// Frecuencia de muestreo que exige el modelo.
 pub const TARGET_RATE: u32 = 16_000;

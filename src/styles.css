@@ -663,3 +663,34 @@ button.primary {
   font-weight: 600;
   line-height: 1.4;
 }
+
+/* ------------------------------------------------------- ecualizador */
+
+/* El boton sigue centrado: el ecualizador cuelga a su derecha, fuera del
+   flujo, asi que no mueve nada ni cambia el tamano de la ventana. */
+.power-wrap {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+
+.eq {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  transition: opacity 0.4s;
+}
+
+.eq.right {
+  left: calc(100% + 22px);
+}
+
+.eq.left {
+  right: calc(100% + 22px);
+}
+
+/* Sin transcribir se sigue viendo si la fuente llega, pero en segundo plano. */
+.eq.dim {
+  opacity: 0.35;
+}

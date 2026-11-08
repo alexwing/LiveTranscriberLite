@@ -43,7 +43,8 @@ export type SessionEvent =
   | { kind: "ready"; device: string; provider: string; fallback: boolean }
   | { kind: "partial"; source: Source; text: string; start_ms: number }
   | { kind: "final"; source: Source; text: string; start_ms: number; end_ms: number }
-  | { kind: "level"; source: Source; rms: number; gain: number; gain_at_ceiling: boolean }
+  /** `bands`: espectro para el ecualizador, 16 valores 0..1 (falta si no llego audio). */
+  | { kind: "level"; source: Source; rms: number; gain: number; gain_at_ceiling: boolean; bands?: number[] }
   | { kind: "error"; source?: Source; message: string }
   /** El dispositivo configurado no existe; se captura con `using` en su lugar. */
   | { kind: "device_fallback"; source: Source; wanted: string; using: string }

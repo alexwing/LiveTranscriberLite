@@ -75,6 +75,10 @@ pub enum SessionEvent {
         rms: f32,
         gain: f32,
         gain_at_ceiling: bool,
+        /// Espectro para el ecualizador de la interfaz: 16 valores 0..1, antes
+        /// de normalizar. Vacio cuando no ha llegado audio (silencio de relleno).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        bands: Vec<f32>,
     },
     /// Sin `source` cuando el fallo es del motor entero y no de una fuente.
     Error {
@@ -197,6 +201,7 @@ impl Session {
             .name("asr-pump".into())
             .spawn(move || {
                 let mut normalizer = Normalizer::new(cfg.normalize_gain);
+                let mut spectrum = asr_audio::Spectrum::new();
                 // Hasta donde llega el audio entregado, en reloj de pared. Es lo
                 // que permite rellenar con silencio cuando el dispositivo calla.
                 let mut fed_until = Instant::now();
@@ -207,12 +212,19 @@ impl Session {
                             // El nivel se mide antes de normalizar: es el dato que
                             // dice si el volumen del sistema esta demasiado bajo.
                             let raw_rms = asr_audio::rms(&block);
+                            // Dos decimales bastan para una barra y acortan el JSON.
+                            let bands = spectrum
+                                .analyze(&block)
+                                .into_iter()
+                                .map(|v| (v * 100.0).round() / 100.0)
+                                .collect();
                             normalizer.process(&mut block);
                             let _ = out.send(SessionEvent::Level {
                                 source,
                                 rms: raw_rms,
                                 gain: normalizer.gain(),
                                 gain_at_ceiling: normalizer.at_ceiling(),
+                                bands,
                             });
                             fed_until = Instant::now();
                             engine.feed(&block)
@@ -232,6 +244,7 @@ impl Session {
                                 rms: 0.0,
                                 gain: normalizer.gain(),
                                 gain_at_ceiling: normalizer.at_ceiling(),
+                                bands: Vec::new(),
                             });
                             engine.feed(&vec![0.0; samples])
                         }
@@ -355,11 +368,25 @@ mod tests {
             rms: 0.5,
             gain: 4.0,
             gain_at_ceiling: false,
+            bands: Vec::new(),
         };
         assert_eq!(
             json(&level),
             r#"{"kind":"level","source":"system","rms":0.5,"gain":4.0,"gain_at_ceiling":false}"#
         );
+        let with_bands = SessionEvent::Level {
+            source: Source::Mic,
+            rms: 0.25,
+            gain: 1.0,
+            gain_at_ceiling: true,
+            bands: vec![0.0, 0.5, 1.0],
+        };
+        assert_eq!(
+            json(&with_bands),
+            r#"{"kind":"level","source":"mic","rms":0.25,"gain":1.0,"gain_at_ceiling":true,"bands":[0.0,0.5,1.0]}"#
+        );
+        let back: SessionEvent = serde_json::from_str(&json(&with_bands)).expect("deserializa");
+        assert_eq!(back, with_bands);
         let fb = SessionEvent::DeviceFallback {
             source: Source::Mic,
             wanted: "a".into(),
