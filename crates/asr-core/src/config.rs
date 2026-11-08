@@ -138,21 +138,30 @@ pub fn config_location() -> PathBuf {
     dir.join(CONFIG_FILE)
 }
 
-fn config_dir() -> PathBuf {
-    std::env::var_os("APPDATA")
+/// Carpeta del usuario: `%USERPROFILE%` en Windows, `$HOME` en el resto.
+fn home_dir() -> Option<PathBuf> {
+    std::env::var_os("USERPROFILE")
+        .or_else(|| std::env::var_os("HOME"))
+        .filter(|home| !home.is_empty())
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("LiveTranscriberLite")
 }
 
-/// Carpeta por defecto: `Documentos\LiveTranscriberLite` del usuario.
+/// Donde va la configuracion: `%APPDATA%` en Windows y
+/// `~/Library/Application Support` en macOS. Sin ninguno, `.`, como antes.
+fn config_dir() -> PathBuf {
+    let base = if cfg!(target_os = "macos") {
+        home_dir().map(|home| home.join("Library").join("Application Support"))
+    } else {
+        std::env::var_os("APPDATA").map(PathBuf::from)
+    };
+    base.unwrap_or_else(|| PathBuf::from(".")).join("LiveTranscriberLite")
+}
+
+/// Carpeta por defecto: `Documentos\LiveTranscriberLite` del usuario (en
+/// macOS, `~/Documents/LiveTranscriberLite`).
 pub fn default_output_dir() -> PathBuf {
-    std::env::var_os("USERPROFILE")
-        .map(|home| {
-            PathBuf::from(home)
-                .join("Documents")
-                .join("LiveTranscriberLite")
-        })
+    home_dir()
+        .map(|home| home.join("Documents").join("LiveTranscriberLite"))
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
@@ -457,12 +466,12 @@ mod tests {
 
     #[test]
     fn una_ruta_de_salida_absoluta_se_respeta() {
+        // Absoluta en el sistema en que corre el test: "D:\..." no lo es en
+        // macOS. Cadena literal de TOML para no escapar las barras de Windows.
+        let dir = std::env::temp_dir().join("mis transcripciones");
         let cfg: AppConfig =
-            toml::from_str("output_dir = 'D:\\\\mis transcripciones'").expect("parsea");
-        assert_eq!(
-            cfg.output_dir_absolute(),
-            PathBuf::from("D:\\mis transcripciones")
-        );
+            toml::from_str(&format!("output_dir = '{}'", dir.display())).expect("parsea");
+        assert_eq!(cfg.output_dir_absolute(), dir);
     }
 
     #[test]
