@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Tauri lo mezcla con el Info.plist del bundle de macOS. Sin estas claves,
+     macOS no llega a preguntar y la captura entrega silencio. -->
+<plist version="1.0">
+<dict>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>LiveTranscriber Lite transcribes what you say into the microphone.</string>
+  <key>NSAudioCaptureUsageDescription</key>
+  <string>LiveTranscriber Lite transcribes the audio playing on this Mac, such as a meeting or a call.</string>
+</dict>
+</plist>

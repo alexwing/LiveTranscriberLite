@@ -101,6 +101,8 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 name = "asr-audio"
 version = "0.1.5"
 dependencies = [
+ "objc2",
+ "objc2-foundation",
  "rustfft",
  "serde",
  "thiserror 2.0.19",

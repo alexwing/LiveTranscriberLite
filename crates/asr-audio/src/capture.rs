@@ -86,7 +86,18 @@ pub fn spawn_capture(
         .map_err(|e| crate::AudioError::Thread(e.to_string()))
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
+pub fn spawn_capture(
+    target: CaptureTarget,
+    running: Arc<AtomicBool>,
+    tx: SyncSender<Vec<f32>>,
+    on_open: Option<OnOpen>,
+    on_error: Option<OnError>,
+) -> Result<JoinHandle<()>> {
+    crate::coreaudio::spawn_capture(target, running, tx, on_open, on_error)
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 pub fn spawn_capture(
     _target: CaptureTarget,
     _running: Arc<AtomicBool>,

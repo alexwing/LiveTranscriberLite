@@ -14,3 +14,9 @@ rustfft = "6"
 
 [target.'cfg(windows)'.dependencies]
 wasapi = "0.23.0"
+
+# Core Audio va por FFI propia; objc2 solo para CATapDescription y para armar
+# el diccionario del dispositivo agregado del tap.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = "0.3"

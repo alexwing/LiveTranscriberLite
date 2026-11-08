@@ -1,4 +1,4 @@
-//! Captura y salida de audio en Windows.
+//! Captura de audio en Windows (WASAPI) y macOS (Core Audio).
 //!
 //! La captura entrega siempre **16 kHz mono f32**, que es lo que espera el
 //! modelo. La conversion desde el formato nativo del dispositivo (tipicamente 48 kHz
@@ -6,7 +6,8 @@
 //! cliente en modo compartido con `autoconvert`, WASAPI activa
 //! `AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | SRC_DEFAULT_QUALITY` y nos da
 //! directamente el formato pedido. Para voz a 16 kHz su calidad sobra, y nos
-//! ahorra el downmix y el remuestreo a mano.
+//! ahorra el downmix y el remuestreo a mano. En macOS Core Audio no convierte:
+//! la mezcla a mono y el remuestreo los hace `coreaudio` con [`resample`].
 //!
 //! Tres modos de captura, todos por la misma tuberia:
 //!
@@ -18,8 +19,13 @@
 //!   y nada mas, sin colarse la musica que suene a la vez.
 
 mod capture;
+#[cfg(target_os = "macos")]
+mod coreaudio;
 mod device;
 mod normalize;
+// Solo lo usa la captura de macOS; en Windows convierte WASAPI.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod resample;
 mod spectrum;
 
 pub use capture::{spawn_capture, CaptureOpened, CaptureTarget, OnError, OnOpen};
@@ -39,6 +45,10 @@ pub enum AudioError {
     #[error("WASAPI: {0}")]
     Wasapi(#[from] wasapi::WasapiError),
 
+    #[cfg(target_os = "macos")]
+    #[error("Core Audio: {0}")]
+    CoreAudio(String),
+
     #[error("could not initialize COM on the capture thread: {0}")]
     Com(String),
 
@@ -48,7 +58,7 @@ pub enum AudioError {
     #[error("could not spawn the capture thread: {0}")]
     Thread(String),
 
-    #[error("capture is only implemented on Windows")]
+    #[error("audio capture is only implemented on Windows and macOS")]
     UnsupportedPlatform,
 }
 
