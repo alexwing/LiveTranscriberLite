@@ -92,6 +92,11 @@ pub fn provision_environment(app: AppHandle, state: tauri::State<'_, AppState>) 
                 refresh_config(&state);
             }
             state.provisioning.store(false, Ordering::SeqCst);
+            if result.is_ok() {
+                // Tras soltar la bandera: `restart_monitor` no arranca mientras
+                // haya aprovisionamiento en curso.
+                crate::restart_monitor(&worker, &state);
+            }
             let event = match result {
                 Ok(()) => {
                     tracing::info!("entorno preparado");

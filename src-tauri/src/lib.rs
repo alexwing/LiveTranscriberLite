@@ -17,6 +17,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
+mod monitor;
 mod provision;
 
 use asr_core::CONFIG_FILE;
@@ -229,6 +230,9 @@ pub struct AppState {
     running: AtomicBool,
     /// install.ps1 en marcha desde la app (ver [`provision`]).
     provisioning: AtomicBool,
+    /// Captura solo para el vumetro, con la ventana visible y sin transcribir
+    /// (ver [`monitor`]). `None` cuando no toca.
+    monitor: Mutex<Option<monitor::Monitor>>,
 }
 
 impl AppState {
@@ -286,6 +290,7 @@ impl AppState {
             transcript: Arc::new(Mutex::new(Transcript::new())),
             running: AtomicBool::new(false),
             provisioning: AtomicBool::new(false),
+            monitor: Mutex::new(None),
         }
     }
 }
@@ -380,6 +385,7 @@ fn adopt_if_changed(held: &Mutex<AppConfig>, path: &Path) -> AppConfig {
 /// lo que el usuario ha tocado y el resto sale del disco.
 #[tauri::command]
 fn update_config(
+    app: AppHandle,
     state: tauri::State<'_, AppState>,
     changes: serde_json::Value,
 ) -> CmdResult<AppConfig> {
@@ -387,7 +393,20 @@ fn update_config(
     let merged = merge_config(&current, &changes)?;
     save_guarded(&state, merged)?;
     let saved = state.config.lock().unwrap().clone();
+    // El monitor mira los mismos dispositivos: si cambian, se reabre. Con una
+    // transcripcion en marcha `restart_monitor` no hace nada.
+    if monitor_inputs_changed(&current, &saved) {
+        restart_monitor(&app, &state);
+    }
     Ok(saved)
+}
+
+/// Lo que decide que dispositivos mira el monitor de nivel.
+fn monitor_inputs_changed(old: &AppConfig, new: &AppConfig) -> bool {
+    old.capture_system != new.capture_system
+        || old.capture_mic != new.capture_mic
+        || old.system_device_id != new.system_device_id
+        || old.mic_device_id != new.mic_device_id
 }
 
 /// El nucleo de [`update_config`], sin `AppState` para poder probarlo.
@@ -606,14 +625,52 @@ fn start_internal(app: &AppHandle, state: &AppState) -> CmdResult<()> {
     if state.running.swap(true, Ordering::SeqCst) {
         return Ok(()); // ya estaba en marcha
     }
+    // El monitor captura los mismos dispositivos que la sesion: se para antes
+    // para no tener dos capturas peleando por el mismo microfono.
+    stop_monitor(state);
     // Si algo falla aqui hay que soltar el flag, o la app se queda creyendo
     // que esta transcribiendo y el boton no vuelve.
     match launch(app, state) {
         Ok(()) => Ok(()),
         Err(e) => {
             state.running.store(false, Ordering::SeqCst);
+            restart_monitor(app, state);
             Err(e)
         }
+    }
+}
+
+/// Para el monitor de nivel, si lo hay. El monitor sale del estado antes de
+/// pararse, asi que ningun lock se sostiene mientras se esperan sus hilos.
+fn stop_monitor(state: &AppState) {
+    let monitor = state.monitor.lock().unwrap().take();
+    if let Some(monitor) = monitor {
+        monitor.stop();
+    }
+}
+
+/// Deja el monitor de nivel como toca: lo para y, solo si no hay transcripcion,
+/// ni aprovisionamiento en curso y la ventana principal esta visible, lo vuelve
+/// a arrancar con la configuracion actual.
+fn restart_monitor(app: &AppHandle, state: &AppState) {
+    stop_monitor(state);
+    if state.running.load(Ordering::SeqCst) || state.provisioning.load(Ordering::SeqCst) {
+        return;
+    }
+    let visible = app
+        .get_webview_window("main")
+        .and_then(|w| w.is_visible().ok())
+        .unwrap_or(false);
+    if !visible {
+        return;
+    }
+    let config = state.config.lock().unwrap().clone();
+    let monitor = monitor::start(app, &config);
+    // Si otro hilo ha arrancado uno mientras tanto, se queda el nuevo y se para
+    // el anterior: nunca quedan dos capturas vivas sin dueño.
+    let previous = state.monitor.lock().unwrap().replace(monitor);
+    if let Some(previous) = previous {
+        previous.stop();
     }
 }
 
@@ -799,6 +856,8 @@ fn stop_internal(app: &AppHandle, state: &AppState) {
         sidecar.shutdown();
     }
     let _ = app.emit("running-changed", false);
+    // Sin transcripcion, la ventana si esta visible vuelve a ver niveles.
+    restart_monitor(app, state);
 }
 
 /// Traduce eventos de sesion en eventos de ventana, actualizando el historial
@@ -892,6 +951,9 @@ fn build_tray(app: &AppHandle, lang: &str) -> tauri::Result<()> {
             "quit" => {
                 let state = app.state::<AppState>();
                 stop_internal(app, &state);
+                // stop_internal puede haber vuelto a arrancar el monitor si la
+                // ventana estaba visible: se para antes de salir.
+                stop_monitor(&state);
                 app.exit(0);
             }
             _ => {}
@@ -906,9 +968,13 @@ fn show_or_hide(app: &AppHandle) {
     };
     if window.is_visible().unwrap_or(false) {
         let _ = window.hide();
+        // Ocultarla desde la bandeja no pasa por CloseRequested: el monitor se
+        // para aqui tambien.
+        stop_monitor(&app.state::<AppState>());
     } else {
         let _ = window.show();
         let _ = window.set_focus();
+        restart_monitor(app, &app.state::<AppState>());
     }
 }
 
@@ -1008,6 +1074,7 @@ pub fn run() {
                 let _ = window.show();
                 let _ = window.unminimize();
                 let _ = window.set_focus();
+                restart_monitor(app, &app.state::<AppState>());
             }
         }))
         .plugin(tauri_plugin_dialog::init())
@@ -1079,16 +1146,34 @@ pub fn run() {
             build_tray(&handle, "en")?;
             let config = app.state::<AppState>().config.lock().unwrap().clone();
             register_shortcuts(&handle, &config);
+            restart_monitor(&handle, &app.state::<AppState>());
             Ok(())
         })
         .on_window_event(|window, event| {
-            // Cerrar la ventana principal manda la app a la bandeja; salir de
-            // verdad es la opcion del menu de la bandeja.
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                if window.label() == "main" {
+            if window.label() != "main" {
+                return;
+            }
+            match event {
+                // Cerrar la ventana principal manda la app a la bandeja; salir
+                // de verdad es la opcion del menu de la bandeja.
+                tauri::WindowEvent::CloseRequested { api, .. } => {
                     api.prevent_close();
                     let _ = window.hide();
+                    stop_monitor(&window.state::<AppState>());
                 }
+                // Cubre lo que llega sin pasar por la bandeja ni por la
+                // instancia unica (p. ej. el usuario trae la ventana con el
+                // teclado). Si ya hay monitor, no se toca.
+                tauri::WindowEvent::Focused(true) => {
+                    let app = window.app_handle();
+                    let state = app.state::<AppState>();
+                    if !state.running.load(Ordering::SeqCst)
+                        && state.monitor.lock().unwrap().is_none()
+                    {
+                        restart_monitor(app, &state);
+                    }
+                }
+                _ => {}
             }
         })
         .run(tauri::generate_context!())
@@ -1278,6 +1363,23 @@ mod tests {
             or_default(Path::new(r"C:\mio\asr.py"), &["sidecar", "asr_server.py"]),
             PathBuf::from(r"C:\mio\asr.py")
         );
+    }
+
+    /// Solo los cuatro campos que decide el monitor reabren la captura.
+    #[test]
+    fn el_monitor_solo_se_reabre_si_cambian_sus_dispositivos() {
+        let base = AppConfig::default();
+        let mut otro_ajuste = base.clone();
+        otro_ajuste.device = "cpu".to_string();
+        assert!(!monitor_inputs_changed(&base, &otro_ajuste));
+
+        let mut mic = base.clone();
+        mic.mic_device_id = "{nuevo}".to_string();
+        assert!(monitor_inputs_changed(&base, &mic));
+
+        let mut sin_sistema = base.clone();
+        sin_sistema.capture_system = !base.capture_system;
+        assert!(monitor_inputs_changed(&base, &sin_sistema));
     }
 
     #[test]

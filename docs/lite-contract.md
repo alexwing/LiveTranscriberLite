@@ -150,7 +150,13 @@ Las claves desconocidas de configs viejas se ignoran.
   - `{"kind":"ready","device":"cpu","provider":"...","fallback":false}` (una vez, sin `source`).
   - `{"kind":"partial","source":"mic","text":"...","start_ms":12000}`
   - `{"kind":"final","source":"mic","text":"...","start_ms":12000,"end_ms":15800}`
-  - `{"kind":"level","source":"system","rms":0.01,"gain":4.0,"gain_at_ceiling":false}`
+  - `{"kind":"level","source":"system","rms":0.01,"gain":4.0,"gain_at_ceiling":false,"bands":[0.0,0.12,...]}`
+    (`bands` es opcional: 16 valores 0..1, de graves a agudos, para el ecualizador; no va en los
+    niveles de relleno de silencio).
+    - Los `level` tambien llegan **sin transcribir**, mientras la ventana principal esta visible
+      (monitor de nivel): solo para el vumetro, sin sidecar ni audio guardado. En ese caso
+      `gain` es siempre `1.0` y `gain_at_ceiling` `false`, y no llega ningun `partial`, `final`
+      ni `loading`. Se para al ocultar la ventana y al arrancar la transcripcion.
   - `{"kind":"error","source":"mic","message":"..."}` (`source` opcional)
   - `{"kind":"device_fallback","source":"mic","wanted":"...","using":"..."}`
   - `{"kind":"device_missing","source":"mic"}`: la fuente estaba activada pero no hay ningún
