@@ -304,7 +304,12 @@ fi
 # device). El resto son del usuario. Lo hace el Python del entorno, que ya
 # existe, para no reinventar TOML con awk. Imprime "fresh", "kept" o
 # "reset:<copia>" y, en la ultima linea, el hf_home que queda.
-merge_out="$("$VENV_PY" - "$CONFIG" "$VENV_PY" "$MODELS_DIR" "$RESET_CONFIG" <<'PY'
+#
+# El codigo va a un fichero y no en un heredoc dentro de $( ): el bash 3.2 de
+# macOS parsea mal un heredoc con comillas y parentesis dentro de una
+# sustitucion de comandos ("syntax error near unexpected token `('").
+MERGE_PY="$(mktemp -t lt-merge-config)" || fail "cannot create a temporary file"
+cat > "$MERGE_PY" <<'PY'
 import datetime, json, os, re, shutil, sys
 
 path, python, models_dir, reset = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4] == "1"
@@ -373,7 +378,10 @@ if not hf_home:
 print(status)
 print(hf_home)
 PY
-)" || fail "could not write the configuration at $CONFIG"
+merge_out="$("$VENV_PY" "$MERGE_PY" "$CONFIG" "$VENV_PY" "$MODELS_DIR" "$RESET_CONFIG")"
+merge_code=$?
+rm -f "$MERGE_PY"
+[ "$merge_code" -eq 0 ] || fail "could not write the configuration at $CONFIG"
 
 merge_status="$(echo "$merge_out" | head -n 1)"
 HF_HOME_CFG="$(echo "$merge_out" | tail -n 1)"
