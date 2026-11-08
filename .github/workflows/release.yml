@@ -1,19 +1,28 @@
 name: Release
 
-# Un tag v* (p. ej. v0.1.0) compila la app para Windows y deja una release en
-# BORRADOR con el instalador NSIS, el MSI y un zip portable. Se publica a mano
-# tras revisarla. La version sale de src-tauri/tauri.conf.json, que tiene que
+# Un tag v* (p. ej. v0.1.0) compila la app para Windows y macOS y deja una
+# release en BORRADOR con el instalador NSIS, el MSI, un zip portable y el .dmg
+# de macOS (Apple Silicon). Se publica a mano tras revisarla. La version sale de src-tauri/tauri.conf.json, que tiene que
 # coincidir con el tag.
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+  # En una PR que toca el empaquetado solo se compila el .dmg, para ver que
+  # sale; no se crea ni se toca ninguna release.
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - src-tauri/tauri.conf.json
+      - src-tauri/tauri.macos.conf.json
+      - src-tauri/Info.plist
 
 permissions:
   contents: write
 
 jobs:
   windows:
+    if: github.event_name != 'pull_request'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -63,7 +72,12 @@ jobs:
 
             El `.zip` portable trae lo mismo sin instalador: descomprimelo y abre `LiveTranscriberLite.exe`.
 
-            Solo Windows 10/11 x64.
+            Windows 10/11 x64.
+
+            **macOS (Apple Silicon, en pruebas)**
+            1. Abre `LiveTranscriberLite_*_aarch64.dmg` y arrastra la app a Aplicaciones.
+            2. La app no esta firmada por Apple: la primera vez macOS no la deja abrir. Ve a Ajustes del Sistema > Privacidad y seguridad y pulsa «Abrir igualmente».
+            3. Se prepara sola igual que en Windows (Python y el modelo de voz) y pide permiso para el microfono y para grabar el audio del sistema. El audio del sistema necesita macOS 14.2 o posterior.
 
       - name: Portable zip
         shell: pwsh
@@ -88,3 +102,76 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "v${{ steps.tauri.outputs.appVersion }}" "$env:ZIP" --clobber
+
+  # macOS: solo la app y el .dmg. asr-cli.exe es de Windows y la config de
+  # macOS (src-tauri/tauri.macos.conf.json) lo quita del bundle. Se compila en
+  # paralelo con Windows y el .dmg se sube a la release cuando esa ya existe.
+  macos:
+    runs-on: macos-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: App version
+        id: version
+        run: |
+          version="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          if [ "${{ github.ref_type }}" = "tag" ] && [ "v$version" != "${{ github.ref_name }}" ]; then
+            echo "El tag ${{ github.ref_name }} no coincide con la version de tauri.conf.json (v$version)"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Build app and dmg
+        run: npx tauri build --bundles app,dmg
+
+      - name: Check the bundle
+        run: |
+          app="$(ls -d target/release/bundle/macos/*.app | head -n 1)"
+          res="$app/Contents/Resources"
+          test -f "$res/scripts/install.sh"
+          test -f "$res/sidecar/asr_server.py"
+          test ! -e "$res/asr-cli.exe"
+          /usr/libexec/PlistBuddy -c "Print :NSMicrophoneUsageDescription" "$app/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Print :NSAudioCaptureUsageDescription" "$app/Contents/Info.plist"
+          codesign --verify --deep --strict "$app"
+
+      - name: Rename dmg
+        run: |
+          dmg="$(ls target/release/bundle/dmg/*.dmg | head -n 1)"
+          mkdir -p out
+          cp "$dmg" "out/LiveTranscriberLite_${{ steps.version.outputs.version }}_aarch64.dmg"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: out/*.dmg
+          if-no-files-found: error
+
+  macos-upload:
+    if: github.event_name != 'pull_request'
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos-dmg
+          path: out
+
+      - name: Upload dmg to the draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "v${{ needs.macos.outputs.version }}" out/*.dmg --clobber --repo "${{ github.repository }}"

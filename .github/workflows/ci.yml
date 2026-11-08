@@ -63,13 +63,8 @@ jobs:
           npm ci
           npm run build
 
-      # El bundle declara asr-cli.exe (el de Windows) como recurso y tauri-build
-      # exige que exista; para compilar y probar basta un fichero vacio.
-      - name: Placeholder for the bundled asr-cli.exe
-        run: |
-          mkdir -p target/release
-          touch target/release/asr-cli.exe
-
+      # Sin placeholder de asr-cli.exe: src-tauri/tauri.macos.conf.json lo quita
+      # de los recursos, y tauri-build falla aqui si eso deja de funcionar.
       - name: Rust tests
         run: cargo test --workspace --locked
 
