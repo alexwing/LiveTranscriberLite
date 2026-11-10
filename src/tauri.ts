@@ -66,6 +66,8 @@ export type ProvisionEvent =
 export interface EnvStatus {
   ready: boolean;
   provisioning: boolean;
+  /** El entorno tiene onnxruntime-directml. `null` en macOS, donde no hay GPU que instalar. */
+  gpu_support: boolean | null;
 }
 
 /** Error de un comando. `code` lo llevan los fallos que la interfaz explica
@@ -116,7 +118,8 @@ export const api = {
   /** Si Python y el sidecar estan listos, y si se estan preparando ahora. */
   environmentStatus: () => call<EnvStatus>("environment_status"),
   /** Prepara el entorno en segundo plano; el progreso llega por `provision`. */
-  provisionEnvironment: () => call<void>("provision_environment"),
+  /** Con `gpu`, instala tambien el soporte de GPU (DirectML y el modelo fp32). */
+  provisionEnvironment: (gpu = false) => call<void>("provision_environment", { gpu }),
 };
 
 /** Copia al portapapeles con respaldo, porque el webview puede bloquear la

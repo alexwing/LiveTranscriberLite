@@ -75,6 +75,9 @@ export function Settings(props: {
   patch: Patch;
   pickDir: () => void;
   setLang: (l: Lang) => void;
+  /** `false`: falta onnxruntime-directml. `undefined`: aun no se sabe, o no aplica. */
+  gpuSupport?: boolean;
+  installGpu: () => void;
 }) {
   const { config, locked, t, patch } = props;
   const [advanced, setAdvanced] = useState(false);
@@ -104,7 +107,17 @@ export function Settings(props: {
           <h2>{t.processing}</h2>
           <Segmented value={config.device} disabled={locked} options={[["cpu", t.cpu], ["gpu", t.gpu]]} onChange={(device) => patch({ device })} />
         </div>
-        {config.device === "gpu" && <p className="note">{t.gpuHint}</p>}
+        {config.device === "gpu" &&
+          (props.gpuSupport === false ? (
+            <div className="gpu-missing">
+              <p className="note">{t.gpuNotInstalled}</p>
+              <button type="button" className="link" disabled={locked} onClick={props.installGpu}>
+                {t.installGpu}
+              </button>
+            </div>
+          ) : (
+            <p className="note">{t.gpuHint}</p>
+          ))}
       </section>
 
       <section className="card">

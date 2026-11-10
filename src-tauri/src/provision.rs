@@ -37,6 +37,10 @@ pub enum ProvisionEvent {
 pub struct EnvStatus {
     pub ready: bool,
     pub provisioning: bool,
+    /// Si el entorno tiene onnxruntime-directml. Sin el, elegir GPU acaba en
+    /// la CPU con un "GPU no disponible" que no decia como arreglarlo.
+    /// `None` donde no hay GPU que instalar (macOS).
+    pub gpu_support: Option<bool>,
 }
 
 /// Si hay con que arrancar el sidecar: el interprete y el script existen.
@@ -53,16 +57,56 @@ pub fn environment_status(app: AppHandle, state: tauri::State<'_, AppState>) -> 
     EnvStatus {
         ready: environment_ready(&app, &config),
         provisioning: state.provisioning.load(Ordering::SeqCst),
+        gpu_support: cfg!(windows).then(|| gpu_support(&app, &config)),
     }
+}
+
+/// Si el venv del interprete configurado tiene onnxruntime-directml.
+///
+/// Se mira el `dist-info` en `site-packages` en vez de preguntarle a Python:
+/// esto se llama al abrir la app y al volver de Ajustes, y arrancar un
+/// interprete que importa onnxruntime tarda segundos.
+pub fn gpu_support(app: &AppHandle, config: &AppConfig) -> bool {
+    let sidecar = config.sidecar();
+    let python = or_default(&sidecar.python, crate::DEFAULT_PYTHON);
+    let Some(python) = resolve_existing(Some(app), &python) else {
+        return false;
+    };
+    // <venv>\Scripts\python.exe -> <venv>\Lib\site-packages
+    python
+        .parent()
+        .and_then(Path::parent)
+        .is_some_and(|venv| has_directml(&venv.join("Lib").join("site-packages")))
+}
+
+/// `onnxruntime_directml-<version>.dist-info` en `site_packages`.
+fn has_directml(site_packages: &Path) -> bool {
+    std::fs::read_dir(site_packages).is_ok_and(|entries| {
+        entries.filter_map(Result::ok).any(|entry| {
+            let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+            name.starts_with("onnxruntime_directml-") && name.ends_with(".dist-info")
+        })
+    })
 }
 
 /// Lanza la preparacion en segundo plano y vuelve enseguida. El progreso y el
 /// final llegan por el evento `provision`. Si ya estaba en marcha no hace nada.
+///
+/// Con `gpu` instala ademas el soporte de GPU (`install.ps1 -Gpu`). Tambien se
+/// pide si la configuracion ya dice `device = "gpu"`: el script sin `-Gpu`
+/// cambia DirectML por la CPU y escribe `device = "cpu"`, asi que reparar el
+/// entorno le quitaria al usuario la GPU que eligio.
 #[tauri::command]
-pub fn provision_environment(app: AppHandle, state: tauri::State<'_, AppState>) -> CmdResult<()> {
+pub fn provision_environment(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+    gpu: Option<bool>,
+) -> CmdResult<()> {
     if state.provisioning.swap(true, Ordering::SeqCst) {
         return Ok(());
     }
+    let gpu = cfg!(windows)
+        && (gpu.unwrap_or(false) || refresh_config(&state).device.eq_ignore_ascii_case("gpu"));
     let Some((script, steps_from)) = find_installer(&app) else {
         state.provisioning.store(false, Ordering::SeqCst);
         return Err(CmdError::new(format!(
@@ -75,8 +119,8 @@ pub fn provision_environment(app: AppHandle, state: tauri::State<'_, AppState>) 
     std::thread::Builder::new()
         .name("provision".into())
         .spawn(move || {
-            tracing::info!("preparando el entorno con {}", script.display());
-            let result = run_installer(&worker, &script, &steps_from, &config_path);
+            tracing::info!("preparando el entorno con {} (gpu: {gpu})", script.display());
+            let result = run_installer(&worker, &script, &steps_from, &config_path, gpu);
             let state = worker.state::<AppState>();
             if result.is_ok() {
                 // install.ps1 acaba de escribir las rutas de Python: sin
@@ -141,6 +185,7 @@ fn run_installer(
     script: &Path,
     steps_from: &Path,
     config_path: &Path,
+    gpu: bool,
 ) -> Result<(), String> {
     let total = std::fs::read_to_string(steps_from)
         .map(|text| count_steps(&text))
@@ -156,11 +201,14 @@ fn run_installer(
         use std::os::windows::process::CommandExt;
         let mut command = Command::new("cmd.exe");
         command.raw_arg(format!(
-            "/d /s /c \"\"{}\" -InstallPython -SkipVerify\"",
-            script.display()
+            "/d /s /c \"\"{}\" -InstallPython -SkipVerify{}\"",
+            script.display(),
+            if gpu { " -Gpu" } else { "" }
         ));
         command
     };
+    #[cfg(not(windows))]
+    let _ = gpu; // install.sh no tiene GPU: en macOS se reconoce en la CPU.
     // bash explicito: el script viaja en el bundle y no hace falta que
     // conserve el bit de ejecucion.
     #[cfg(not(windows))]
@@ -310,6 +358,19 @@ mod tests {
             parse_line("[notice] A new release of pip"),
             Parsed::Detail("[notice] A new release of pip".into())
         );
+    }
+
+    #[test]
+    fn ve_si_el_venv_tiene_directml() {
+        let dir = std::env::temp_dir().join(format!("lt-directml-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("onnxruntime-1.31.1.dist-info")).unwrap();
+        std::fs::create_dir_all(dir.join("onnxruntime")).unwrap();
+        assert!(!has_directml(&dir), "el onnxruntime de CPU no es GPU");
+        std::fs::create_dir_all(dir.join("onnxruntime_directml-1.24.4.dist-info")).unwrap();
+        assert!(has_directml(&dir));
+        assert!(!has_directml(&dir.join("no-existe")));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
