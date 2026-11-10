@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { LogicalSize } from "@tauri-apps/api/dpi";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { PhysicalPosition, PhysicalSize } from "@tauri-apps/api/dpi";
+import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
 
 import { AppConfig, AudioDevice, Entry, ExportFormat, ProvisionEvent, SessionEvent, Source, api, copyText, formatElapsed } from "./tauri";
 import { Lang, STRINGS, Strings, initialLang } from "./i18n";
@@ -18,8 +18,9 @@ type Notice = { text: string; path?: boolean };
 
 const SAVE_DEBOUNCE_MS = 400;
 // La ventana es compacta en reposo y crece cuando hay transcripcion o ajustes.
-const COMPACT = new LogicalSize(420, 330);
-const EXPANDED = new LogicalSize(420, 640);
+/** Tamaños de la ventana en px CSS, los del diseño. */
+const COMPACT = [420, 330] as const;
+const EXPANDED = [420, 640] as const;
 
 /** Registra un listener de Tauri. Fuera de Tauri (navegador suelto) `listen`
  *  rechaza: se ignora y la pagina sigue viva. */
@@ -64,14 +65,19 @@ export default function App() {
   // Preparacion del entorno (Python + modelo). `null`: no hace falta o ya
   // termino. La app la lanza sola: nadie tiene que ejecutar install.cmd.
   const [prep, setPrep] = useState<Prep | null>(null);
+  /** Si el entorno tiene el soporte de GPU; `null` si no aplica o aun no se sabe. */
+  const [gpuSupport, setGpuSupport] = useState<boolean | null>(null);
+  const refreshGpuSupport = useCallback(() => {
+    api.environmentStatus().then((s) => setGpuSupport(s.gpu_support)).catch(() => {});
+  }, []);
   // Espectro por fuente para el ecualizador. Ref y no estado: llega 20 veces
   // por segundo y el canvas lo lee solo.
   const bandsRef: BandsRef = useRef({});
-  const beginPrep = useCallback((alreadyRunning: boolean) => {
+  const beginPrep = useCallback((alreadyRunning: boolean, gpu = false) => {
     setError("");
     setPrep(EMPTY_PREP);
     if (alreadyRunning) return;
-    api.provisionEnvironment().catch((e) => setPrep((p) => ({ ...(p ?? EMPTY_PREP), error: errorText(e, tRef.current) })));
+    api.provisionEnvironment(gpu).catch((e) => setPrep((p) => ({ ...(p ?? EMPTY_PREP), error: errorText(e, tRef.current) })));
   }, []);
   /** Un arranque que falla por falta de entorno lo prepara en vez de quejarse. */
   const failOrPrep = useCallback(
@@ -100,6 +106,7 @@ export default function App() {
     api
       .environmentStatus()
       .then((s) => {
+        setGpuSupport(s.gpu_support);
         if (!s.ready) beginPrep(s.provisioning);
       })
       .catch(fail);
@@ -176,6 +183,7 @@ export default function App() {
               setPrep(null);
               setNotice({ text: tRef.current.prepDone });
               api.getConfig().then(setConfig).catch(() => {});
+              refreshGpuSupport();
             } else {
               setPrep((p) => ({ ...(p ?? EMPTY_PREP), error: ev.message || tRef.current.prepFailed }));
             }
@@ -184,7 +192,7 @@ export default function App() {
       }),
     ];
     return () => offs.forEach((off) => off());
-  }, [failOrPrep]);
+  }, [failOrPrep, refreshGpuSupport]);
 
   // Cronometro: un tick por segundo solo mientras hay sesion en marcha.
   useEffect(() => {
@@ -206,16 +214,67 @@ export default function App() {
     return () => window.clearTimeout(id);
   }, [confirmClear]);
 
-  const expanded = running || entries.length > 0 || screen === "settings";
-  const showTranscript = running || entries.length > 0;
+  // .window se ajusta a los px enteros que caben en la ventana. Con un
+  // devicePixelRatio fraccionario (el "Tamaño del texto" de Windows al 120%
+  // lo pone en 1,2) el 100% de la pagina acaba en medio pixel, y el borde
+  // derecho de .window caia fuera de la ventana: las esquinas de la derecha
+  // salian cortadas. Nunca mas grande que la pagina (ver .window en styles.css).
   useEffect(() => {
-    // Fuera de Tauri (navegador suelto) no hay ventana que redimensionar.
+    const offs: Array<() => void> = [];
     try {
       const win = getCurrentWindow();
-      void win.setResizable(expanded).then(() => win.setSize(expanded ? EXPANDED : COMPACT)).catch(() => {});
+      const fit = () =>
+        win
+          .innerSize()
+          .then((size) => {
+            const dpr = window.devicePixelRatio || 1;
+            const root = document.documentElement.style;
+            // +0.01: 504 / 1.2000000476837158 tiene que dar 420, no 419.
+            root.setProperty("--win-w", `${Math.floor(size.width / dpr + 0.01)}px`);
+            root.setProperty("--win-h", `${Math.floor(size.height / dpr + 0.01)}px`);
+          })
+          .catch(() => {});
+      void fit();
+      window.addEventListener("resize", fit);
+      offs.push(() => window.removeEventListener("resize", fit));
+      void win.onResized(() => void fit()).then((off) => offs.push(off));
     } catch {
-      /* sin ventana */
+      /* sin ventana (navegador suelto): se queda en el 100% */
     }
+    return () => offs.forEach((off) => off());
+  }, []);
+
+  const expanded = running || entries.length > 0 || screen === "settings";
+  const showTranscript = running || entries.length > 0;
+  // El tamaño se pide en px fisicos = px CSS del diseño x devicePixelRatio, no
+  // en px logicos: el devicePixelRatio de WebView2 incluye el "Tamaño del
+  // texto" de Windows, que la escala de la ventana no. Con el texto al 120% una
+  // ventana logica de 420x330 dejaba a la pagina 350x275, y no cabia lo que
+  // cabe en el diseño. Si cambia el devicePixelRatio (otro monitor, otro
+  // tamaño de texto) se vuelve a pedir.
+  useEffect(() => {
+    let win: ReturnType<typeof getCurrentWindow>;
+    try {
+      win = getCurrentWindow();
+    } catch {
+      return; // fuera de Tauri (navegador suelto) no hay ventana que redimensionar
+    }
+    let applied = 0;
+    const apply = () => {
+      const dpr = window.devicePixelRatio || 1;
+      if (dpr === applied) return;
+      applied = dpr;
+      const [w, h] = expanded ? EXPANDED : COMPACT;
+      void win
+        .setResizable(expanded)
+        .then(() => win.setSize(new PhysicalSize(Math.round(w * dpr), Math.round(h * dpr))))
+        .then(() => keepOnScreen(win))
+        .catch(() => {});
+    };
+    apply();
+    // Un cambio de devicePixelRatio llega como un resize de la pagina.
+    window.addEventListener("resize", apply);
+    return () => window.removeEventListener("resize", apply);
   }, [expanded]);
 
   /** Envia a Rust lo pendiente. Rust lo mezcla con el disco y devuelve el
@@ -313,8 +372,16 @@ export default function App() {
     ? ([config.capture_mic && t.micro, config.capture_system && t.systemAudio].filter(Boolean) as string[])
     : [];
   const hotkey = config?.hotkey_toggle.replace("CmdOrControl", "Ctrl") ?? "";
-  const device = ready?.fallback ? "cpu" : config?.device ?? "";
-  const warning = ready?.fallback ? t.gpuFallback : fallbacks.mic ?? fallbacks.system;
+  // GPU elegida sin onnxruntime-directml: va a ir en la CPU, y se dice antes de
+  // arrancar y con lo que hay que hacer, no solo "no disponible".
+  const gpuMissing = config?.device === "gpu" && gpuSupport === false;
+  const device = ready?.fallback || gpuMissing ? "cpu" : config?.device ?? "";
+  const warning = gpuMissing ? t.gpuMissing : ready?.fallback ? t.gpuFallback : fallbacks.mic ?? fallbacks.system;
+  const installGpu = async () => {
+    await flush(); // que el disco ya diga device = "gpu" antes de lanzar el script
+    setScreen("main");
+    beginPrep(false, true);
+  };
 
   const label = loading ? t.loadingModel : running ? t.listening : t.tapToStart;
   // Las fuentes que se capturan, sistema primero (arriba en el ecualizador).
@@ -351,6 +418,7 @@ export default function App() {
         <Settings
           config={config} outputs={outputs} inputs={inputs} outputDir={outputDir} filenamePreview={filenamePreview}
           locked={locked} lang={lang} t={t} patch={patch} pickDir={pickDir} setLang={setLang}
+          gpuSupport={gpuSupport ?? undefined} installGpu={() => void installGpu().catch(fail)}
         />
       ) : (
         <main>
@@ -412,6 +480,19 @@ export default function App() {
       {footer}
     </div>
   );
+}
+
+/** Al crecer, la ventana crece hacia abajo; con el texto al 120% la ampliada
+ *  mide 768 px y se salia de una pantalla de 1080. Se sube (o se mueve a la
+ *  izquierda) lo justo para que quepa en el area de trabajo del monitor. */
+async function keepOnScreen(win: ReturnType<typeof getCurrentWindow>) {
+  const [monitor, pos, size] = await Promise.all([currentMonitor(), win.outerPosition(), win.outerSize()]);
+  if (!monitor) return;
+  const area = monitor.workArea ?? { position: monitor.position, size: monitor.size };
+  const clamp = (v: number, start: number, room: number, len: number) => Math.max(start, Math.min(v, start + room - len));
+  const x = clamp(pos.x, area.position.x, area.size.width, size.width);
+  const y = clamp(pos.y, area.position.y, area.size.height, size.height);
+  if (x !== pos.x || y !== pos.y) await win.setPosition(new PhysicalPosition(x, y));
 }
 
 /** Texto de un error para el pie: los que traen `code` se cuentan con las

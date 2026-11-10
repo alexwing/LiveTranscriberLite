@@ -53,7 +53,10 @@ button:disabled {
 .window {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  /* Lo que mide la ventana, sin pasar de la pagina: ver el efecto que pone
+     --win-w/--win-h en App.tsx. */
+  width: min(100%, var(--win-w, 100%));
+  height: min(100%, var(--win-h, 100%));
   overflow: hidden;
   background: var(--surface-0);
   border: 1px solid var(--border);
@@ -693,4 +696,15 @@ button.primary {
 /* Sin transcribir se sigue viendo si la fuente llega, pero en segundo plano. */
 .eq.dim {
   opacity: 0.35;
+}
+
+.gpu-missing {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.gpu-missing .link {
+  margin-left: 0;
 }
