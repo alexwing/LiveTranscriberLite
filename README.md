@@ -7,6 +7,12 @@ en `.txt` o `.srt`. Hay versión para Windows y para macOS con Apple Silicon (es
 Es la versión recortada de [LiveTranscriber](https://github.com/alexwing/LiveTranscriber): no traduce, no habla, no
 tiene subtítulos ni perfiles. Pulsas el botón, transcribe, y al parar lo guardas.
 
+<p align="center">
+  <img src="docs/screenshots/main.png" alt="Ventana principal: el botón para transcribir, con el nivel del micrófono y del audio del sistema a los lados" width="420">
+  &nbsp;
+  <img src="docs/screenshots/transcript.png" alt="Una transcripción terminada, con los botones para guardarla en .txt o .srt, copiarla o borrarla" width="276">
+</p>
+
 ## Modelo
 
 [NVIDIA Parakeet TDT 0.6B v3](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx) en
