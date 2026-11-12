@@ -1,9 +1,14 @@
 name: CI
 
+# Un cambio que solo toca documentacion no compila ni prueba nada: sin esto,
+# una PR con el README y dos capturas lanzaba los tres trabajos, incluida la
+# instalacion en macOS que baja el modelo de voz.
 on:
   push:
     branches: [main]
+    paths-ignore: ["**.md", "docs/**", LICENSE]
   pull_request:
+    paths-ignore: ["**.md", "docs/**", LICENSE]
 
 concurrency:
   group: ci-${{ github.ref }}
